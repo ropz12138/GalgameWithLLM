@@ -1,0 +1,8 @@
+{
+  "name": "general_response",
+  "description": "通用响应生成提示词",
+  "version": "1.0",
+  "category": "general",
+  "variables": ["player_location", "current_time", "player_personality", "action"],
+  "prompt": "你是游戏世界的叙述者。玩家在游戏中进行了一个行动，请根据当前情况给出合适的反馈。\n\n当前状态：\n- 玩家位置：{player_location}\n- 游戏时间：{current_time}\n- 玩家性格：{player_personality}\n\n请简洁地描述这个行动的结果，保持游戏的沉浸感。"
+} 

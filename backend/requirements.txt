@@ -6,3 +6,8 @@ langchain-openai
 pydantic
 langgraph
 typing-extensions
+sqlalchemy
+psycopg2-binary
+passlib[bcrypt]
+python-jose[cryptography]
+python-multipart

@@ -383,7 +383,7 @@ def dialogue_handler_node(state: GameState) -> Dict[str, Any]:
     print(f"✅ 对话解析成功 - 目标NPC: {npc_name}, 消息: {message}")
     
     # 检查NPC是否在当前位置
-    current_npcs = get_npcs_at_location(player_location, state["npc_locations"], current_time)
+    current_npcs = get_npcs_at_location(player_location, state["npc_locations"], current_time, state)
     npc_names = [npc["name"] for npc in current_npcs]
     
     print(f"📍 当前位置NPC: {npc_names}")
@@ -504,7 +504,7 @@ def exploration_handler_node(state: GameState) -> Dict[str, Any]:
     location_info = all_locations_data.get(player_location, {})
     
     # 获取当前地点的NPC
-    current_npcs = get_npcs_at_location(player_location, state["npc_locations"], current_time)
+    current_npcs = get_npcs_at_location(player_location, state["npc_locations"], current_time, state)
     print(f"👥 当前地点NPC: {[npc['name'] for npc in current_npcs]}")
     
     # 生成探索反馈
@@ -588,7 +588,7 @@ def general_handler_node(state: GameState) -> Dict[str, Any]:
     sensory_feedback = generate_exploration_feedback(
         action, 
         all_locations_data.get(state["player_location"], {}), 
-        get_npcs_at_location(state["player_location"], state["npc_locations"], new_time), 
+        get_npcs_at_location(state["player_location"], state["npc_locations"], new_time, state), 
         new_time, 
         state["player_personality"]
     )
@@ -629,9 +629,15 @@ def get_npc_current_location_and_event(npc_name: str, current_time_obj, state: G
     
     # 优先从游戏状态中获取动态更新的NPC数据
     npc_data = None
-    if state and "npc_dynamic_data" in state:
-        npc_data = state["npc_dynamic_data"].get(npc_name)
-        print(f"🔍 【调试】从动态数据获取{npc_name}的数据: {npc_data is not None}")
+    if state:
+        # 处理GameStateModel对象
+        if hasattr(state, 'npc_dynamic_data') and state.npc_dynamic_data:
+            npc_data = state.npc_dynamic_data.get(npc_name)
+            print(f"🔍 【调试】从动态数据获取{npc_name}的数据: {npc_data is not None}")
+        # 处理字典类型的state
+        elif isinstance(state, dict) and "npc_dynamic_data" in state:
+            npc_data = state["npc_dynamic_data"].get(npc_name)
+            print(f"🔍 【调试】从动态数据获取{npc_name}的数据: {npc_data is not None}")
     
     # 如果没有动态数据，回退到静态数据
     if not npc_data:
@@ -665,34 +671,48 @@ def get_npc_current_location_and_event(npc_name: str, current_time_obj, state: G
     return default_location, "空闲"
 
 
-def get_npcs_at_location(location_name: str, npc_locations: Dict[str, str], current_time: str) -> list:
+def get_npcs_at_location(location_name: str, npc_locations: Dict[str, str], current_time: str, state: GameState = None) -> list:
     """获取指定地点的NPC列表"""
     from datetime import datetime
     
-    print(f"🔍 【NPC位置调试】查找地点: {location_name}")
-    print(f"🔍 【NPC位置调试】当前时间: {current_time}")
+    print(f"\n🔍 [DEBUG] get_npcs_at_location 调用:")
+    print(f"  - 目标地点: {location_name}")
+    print(f"  - 当前时间: {current_time}")
+    print(f"  - 输入的npc_locations: {npc_locations}")
     
     npcs_here = []
     current_time_obj = datetime.strptime(current_time, "%H:%M").time()
     
+    print(f"\n🔍 [DEBUG] 开始检查每个NPC:")
+    
     for actress in all_actresses:
         npc_name = actress["name"]
+        print(f"\n🔍 [DEBUG] 检查NPC: {npc_name}")
         
         # 🔧 修复：总是根据当前时间和计划表计算NPC的准确位置
         # 而不是依赖可能过时的npc_locations状态
-        npc_loc, npc_event = get_npc_current_location_and_event(npc_name, current_time_obj)
+        npc_loc, npc_event = get_npc_current_location_and_event(npc_name, current_time_obj, state)
         
-        print(f"🔍 【NPC位置调试】{npc_name}: 计算位置={npc_loc}, 目标位置={location_name}, 匹配={npc_loc == location_name}")
+        print(f"  - 计算出的位置: {npc_loc}")
+        print(f"  - 目标位置: {location_name}")
+        print(f"  - 位置匹配: {npc_loc == location_name}")
         
         if npc_loc == location_name:
-            npcs_here.append({
+            npc_info = {
                 "name": npc_name,
                 "event": npc_event,
                 "personality": actress["personality"],
                 "mood": actress.get("mood", "平静")
-            })
+            }
+            npcs_here.append(npc_info)
+            print(f"  ✅ 添加到列表: {npc_info}")
+        else:
+            print(f"  ❌ 不在目标位置")
     
-    print(f"🔍 【NPC位置调试】最终找到的NPC: {[npc['name'] for npc in npcs_here]}")
+    print(f"\n🔍 [DEBUG] get_npcs_at_location 结果:")
+    print(f"  - 找到的NPC: {[npc['name'] for npc in npcs_here]}")
+    print(f"  - 完整结果: {npcs_here}")
+    
     return npcs_here
 
 
@@ -805,7 +825,7 @@ def generate_npc_reply(npc_obj: dict, message: str, dialogue_history: list, stat
     location_description = location_details.get("description", "")
     
     # 获取其他在场NPC信息
-    current_npcs = get_npcs_at_location(state["player_location"], state["npc_locations"], state["current_time"])
+    current_npcs = get_npcs_at_location(state["player_location"], state["npc_locations"], state["current_time"], state)
     other_npcs = [npc for npc in current_npcs if npc["name"] != npc_name]
     other_npcs_info = ""
     if other_npcs:

@@ -394,7 +394,7 @@ def create_langgraph_api_app() -> FastAPI:
             
             # 🔧 修复：传递空的npc_locations，让get_npcs_at_location函数根据时间重新计算
             # 而不是使用可能过时的状态数据
-            npcs_at_player_location = get_npcs_at_location(player_location, {}, current_time)
+            npcs_at_player_location = get_npcs_at_location(player_location, {}, current_time, None)
             
             print(f"🔍 【API调试】计算得到的NPC: {[npc['name'] for npc in npcs_at_player_location]}")
             
@@ -465,7 +465,7 @@ def get_location_details_for_api(location_name: str, npc_locations: Dict[str, st
         "name": location_data.get("name", location_name),
         "description": location_data.get("description", "未知地点"),
         "connections": location_connections.get(location_name, []),
-        "npcs_present": get_npcs_at_location(location_name, npc_locations, current_time)
+        "npcs_present": get_npcs_at_location(location_name, npc_locations, current_time, None)
     }
 
 

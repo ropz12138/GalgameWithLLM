@@ -231,12 +231,17 @@ async def execute_game_action(action: str, session_id: str = "default") -> Dict[
             initial_state["current_action"] = action
             print(f"  ✅ 初始状态创建完成，NPC位置数量: {len(initial_state.get('npc_locations', {}))}")
         else:
-            # 更新当前行动
+            # 更新当前行动，但保留其他状态
+            existing_state = current_state.values
             initial_state = {
-                **current_state.values,
-                "current_action": action
+                **existing_state,
+                "current_action": action,
+                # 🔧 修复：清空消息列表，避免重复累积
+                "messages": [],
+                "game_events": []
             }
             print(f"  ✅ 使用现有状态，更新行动为: {action}")
+            print(f"  🔧 清空消息列表，避免重复累积")
         
         print(f"\n🔄 开始执行LangGraph工作流...")
         print("-"*40)
@@ -378,9 +383,14 @@ async def stream_game_action(action: str, session_id: str = "default"):
             initial_state = create_initial_state(session_id)
             initial_state["current_action"] = action
         else:
+            # 更新当前行动，但保留其他状态
+            existing_state = current_state.values
             initial_state = {
-                **current_state.values,
-                "current_action": action
+                **existing_state,
+                "current_action": action,
+                # 🔧 修复：清空消息列表，避免重复累积
+                "messages": [],
+                "game_events": []
             }
         
         # 流式执行

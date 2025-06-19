@@ -9,8 +9,10 @@ class PlayerModel:
     """玩家模型类"""
     
     def __init__(self, session_id: str = "default"):
+        from utils.config_loader import get_user_place
+        
         self.session_id = session_id
-        self.location = "linkai_room"
+        self.location = get_user_place()  # 从配置文件获取玩家初始位置
         self.personality = "普通"
         self.inventory: Dict[str, Any] = {}
         self.relationships: Dict[str, Dict[str, Any]] = {}
@@ -38,8 +40,10 @@ class PlayerModel:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'PlayerModel':
         """从字典创建实例"""
+        from utils.config_loader import get_user_place
+        
         instance = cls(data.get("session_id", "default"))
-        instance.location = data.get("location", "linkai_room")
+        instance.location = data.get("location", get_user_place())
         instance.personality = data.get("personality", "普通")
         instance.inventory = data.get("inventory", {})
         instance.relationships = data.get("relationships", {})

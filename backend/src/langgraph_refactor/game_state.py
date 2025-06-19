@@ -42,9 +42,11 @@ class GameState(TypedDict):
 def create_initial_state(session_id: str = "default") -> GameState:
     """创建初始游戏状态"""
     from datetime import datetime
+    from utils.config_loader import get_user_place, get_init_time
     
     current_time = datetime.now().strftime("%H:%M")
-    game_time = "07:00"  # 游戏开始时间
+    game_time = get_init_time()  # 从配置文件获取游戏开始时间
+    player_location = get_user_place()  # 从配置文件获取玩家初始位置
     
     # 初始化NPC位置（根据游戏时间）
     initial_npc_locations = {}
@@ -74,7 +76,7 @@ def create_initial_state(session_id: str = "default") -> GameState:
             
             # 如果没找到当前活动，使用默认位置
             if npc_location == "未知地点":
-                npc_location = location_name_map.get(actress.get("default_location", "linkai_room"), "linkai_room")
+                npc_location = location_name_map.get(actress.get("default_location", player_location), player_location)
             
             initial_npc_locations[npc_name] = npc_location
             
@@ -87,7 +89,7 @@ def create_initial_state(session_id: str = "default") -> GameState:
         }
     
     return {
-        "player_location": "linkai_room",
+        "player_location": player_location,
         "player_personality": "普通",
         "current_time": game_time,
         "messages": [],

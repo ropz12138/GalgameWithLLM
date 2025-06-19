@@ -1,5 +1,6 @@
 import React, { useState, useEffect, FormEvent } from 'react';
 import './App.css'; // We will create this for basic styling
+import Login from './components/Login';
 
 interface NPC {
   name: string;
@@ -31,7 +32,9 @@ const locationKeyToName: Record<string, string> = {
 };
 
 // API基础URL - 从环境变量读取，默认为8001端口
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+const GAME_API_BASE_URL = `${API_BASE_URL}/api`;
+const AUTH_API_BASE_URL = API_BASE_URL;
 
 function App() {
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -51,19 +54,71 @@ function App() {
   // 新增：跟踪五感信息展开状态的状态变量
   const [expandedSensoryItems, setExpandedSensoryItems] = useState<Set<number>>(new Set());
 
-  // Fetch initial game state
+  // 新增：认证状态
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+
+  // 检查本地存储的token
   useEffect(() => {
+    const savedToken = localStorage.getItem('token');
+    if (savedToken) {
+      setToken(savedToken);
+      setIsAuthenticated(true);
+    } else {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // 处理登录成功
+  const handleLogin = (newToken: string) => {
+    setToken(newToken);
+    setIsAuthenticated(true);
+  };
+
+  // 处理登出
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    setToken(null);
+    setIsAuthenticated(false);
+    setGameState(null);
+    setError(null);
+  };
+
+  // Fetch initial game state - 只在认证后调用
+  useEffect(() => {
+    if (!isAuthenticated || !token) {
+      setIsLoading(false);
+      return;
+    }
+
     const fetchGameState = async () => {
       try {
+        console.log("🔍 [前端DEBUG] 开始获取游戏状态");
         setIsLoading(true);
-        const response = await fetch(`${API_BASE_URL}/game_state`);
+        const response = await fetch(`${GAME_API_BASE_URL}/game_state`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        console.log(`🔍 [前端DEBUG] 游戏状态API响应: ${response.status} ${response.statusText}`);
+        
         if (!response.ok) {
+          if (response.status === 401) {
+            // Token无效，清除认证状态
+            handleLogout();
+            return;
+          }
           throw new Error(`HTTP error! status: ${response.status}`);
         }
         const data = await response.json();
+        console.log("🔍 [前端DEBUG] 接收到的游戏状态数据:", data);
+        console.log("🔍 [前端DEBUG] 当前地点的NPC:", data.npcs_at_current_location);
+        
         setGameState(data);
         setIsLoading(false);
+        console.log("🔍 [前端DEBUG] 游戏状态设置完成");
       } catch (e) {
+        console.error("❌ [前端DEBUG] 获取游戏状态失败:", e);
         if (e instanceof Error) {
           setError(`获取游戏状态失败: ${e.message}`);
         }
@@ -71,7 +126,12 @@ function App() {
       }
     };
     fetchGameState();
-  }, []);
+  }, [isAuthenticated, token]);
+
+  // 如果未认证，显示登录页面
+  if (!isAuthenticated) {
+    return <Login onLogin={handleLogin} />;
+  }
 
   const handleUserInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setUserInput(event.target.value);
@@ -94,15 +154,21 @@ function App() {
 
     try {
       console.log(`🚀 [前端] 发送API请求: ${currentAction}`);
-      const response = await fetch(`${API_BASE_URL}/process_action`, {
+      const response = await fetch(`${GAME_API_BASE_URL}/process_action`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ action: currentAction }),
       });
       
       if (!response.ok) {
+        if (response.status === 401) {
+          // Token无效，清除认证状态
+          handleLogout();
+          return;
+        }
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
@@ -166,15 +232,21 @@ function App() {
     try {
       console.log(`🗣️ [前端] 发送NPC对话请求: ${dialogueMessage}`);
       // 使用统一的process_action API
-      const response = await fetch(`${API_BASE_URL}/process_action`, {
+      const response = await fetch(`${GAME_API_BASE_URL}/process_action`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ action: dialogueMessage }),
       });
       
       if (!response.ok) {
+        if (response.status === 401) {
+          // Token无效，清除认证状态
+          handleLogout();
+          return;
+        }
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
@@ -305,26 +377,51 @@ function App() {
 
   // 获取控制台数据的函数
   const fetchConsoleData = async () => {
+    console.log("🔍 [前端DEBUG] 开始获取控制台数据");
     setConsoleLoading(true);
     try {
-      const [locationsResponse, npcResponse] = await Promise.all([
-        fetch(`${API_BASE_URL}/debug/locations`),
-        fetch(`${API_BASE_URL}/debug/npc_locations`)
+      console.log("🔍 [前端DEBUG] 发送API请求...");
+      const [locationsResponse, npcStatusResponse] = await Promise.all([
+        fetch(`${GAME_API_BASE_URL}/debug/locations`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }),
+        fetch(`${GAME_API_BASE_URL}/debug/npc_status`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
       ]);
 
-      if (!locationsResponse.ok || !npcResponse.ok) {
+      console.log("🔍 [前端DEBUG] API响应状态:");
+      console.log(`  - locationsResponse: ${locationsResponse.status} ${locationsResponse.statusText}`);
+      console.log(`  - npcStatusResponse: ${npcStatusResponse.status} ${npcStatusResponse.statusText}`);
+
+      if (!locationsResponse.ok || !npcStatusResponse.ok) {
+        if (locationsResponse.status === 401 || npcStatusResponse.status === 401) {
+          // Token无效，清除认证状态
+          handleLogout();
+          return;
+        }
         throw new Error('获取控制台数据失败');
       }
 
       const locationsData = await locationsResponse.json();
-      const npcData = await npcResponse.json();
+      const npcStatusData = await npcStatusResponse.json();
+
+      console.log("🔍 [前端DEBUG] 接收到的数据:");
+      console.log("  - locationsData:", locationsData);
+      console.log("  - npcStatusData:", npcStatusData);
 
       setConsoleData({
         locations: locationsData,
-        npcs: npcData
+        npcs: npcStatusData
       });
+
+      console.log("🔍 [前端DEBUG] 控制台数据设置完成");
     } catch (error) {
-      console.error('Error fetching console data:', error);
+      console.error('❌ [前端DEBUG] 获取控制台数据失败:', error);
       alert('获取控制台数据时出错');
     } finally {
       setConsoleLoading(false);
@@ -361,6 +458,12 @@ function App() {
           >
             {consoleLoading ? '加载中...' : '控制台'}
           </button>
+          <button 
+            className="logout-button"
+            onClick={handleLogout}
+          >
+            登出
+          </button>
         </div>
       </header>
 
@@ -376,19 +479,27 @@ function App() {
             {gameState.npcs_at_current_location.length > 0 && (
               <div className="npcs-section">
                 <h3>当前地点的NPC：</h3>
+                {(() => {
+                  console.log("🔍 [前端DEBUG] 渲染页面NPC列表:");
+                  console.log("  - gameState.npcs_at_current_location:", gameState.npcs_at_current_location);
+                  return null;
+                })()}
                 <div className="npc-list">
-                  {gameState.npcs_at_current_location.map((npc) => (
-                    <div key={npc.name} className="npc-card">
-                      <h4>{npc.name}</h4>
-                      <p>正在进行：{npc.event}</p>
-                      <p>性格：{npc.personality}</p>
-                      <div className="npc-actions">
-                        <button onClick={() => handleNpcButtonClick(npc)} className="detailed-talk-btn">
-                          与{npc.name}对话
-                        </button>
+                  {gameState.npcs_at_current_location.map((npc) => {
+                    console.log(`🔍 [前端DEBUG] 渲染页面NPC卡片: ${npc.name}`, npc);
+                    return (
+                      <div key={npc.name} className="npc-card">
+                        <h4>{npc.name}</h4>
+                        <p>正在进行：{npc.event}</p>
+                        <p>性格：{npc.personality}</p>
+                        <div className="npc-actions">
+                          <button onClick={() => handleNpcButtonClick(npc)} className="detailed-talk-btn">
+                            与{npc.name}对话
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -488,6 +599,13 @@ function App() {
                     {/* NPC信息面板 */}
                     <div className="console-panel">
                       <h4>NPC状态信息</h4>
+                      {(() => {
+                        console.log("🔍 [前端DEBUG] 渲染控制台NPC状态信息:");
+                        console.log("  - consoleData.npcs:", consoleData.npcs);
+                        console.log("  - npcs_at_player_location:", consoleData.npcs?.npcs_at_player_location);
+                        console.log("  - npc_locations:", consoleData.npcs?.npc_locations);
+                        return null;
+                      })()}
                       <div className="npc-status-info">
                         <p><strong>当前时间：</strong>{consoleData.npcs?.current_time}</p>
                         <p><strong>玩家位置：</strong>{consoleData.npcs?.player_location}</p>
@@ -499,27 +617,31 @@ function App() {
                         </p>
                       </div>
                       <div className="npcs-grid">
-                        {consoleData.npcs?.npc_locations && Object.entries(consoleData.npcs.npc_locations).map(([name, npcInfo]: [string, any]) => (
-                          <div key={name} className="npc-status-card">
-                            <h5>{name}</h5>
-                            <p><strong>当前位置：</strong>{npcInfo.current_location}</p>
-                            <p><strong>当前活动：</strong>{npcInfo.current_event}</p>
-                            <div className="npc-schedule">
-                              <strong>计划表：</strong>
-                              <ul>
-                                {npcInfo.schedule && npcInfo.schedule.length > 0 ? (
-                                  npcInfo.schedule.map((item: any, index: number) => (
-                                    <li key={index}>
-                                      {item.start_time}-{item.end_time} 在{item.location}：{item.event}
-                                    </li>
-                                  ))
-                                ) : (
-                                  <li>无计划</li>
-                                )}
-                              </ul>
+                        {consoleData.npcs?.npc_locations && Object.entries(consoleData.npcs.npc_locations).map(([name, npcInfo]: [string, any]) => {
+                          console.log(`🔍 [前端DEBUG] 渲染NPC卡片: ${name}`, npcInfo);
+                          return (
+                            <div key={name} className="npc-status-card">
+                              <h5>{name}</h5>
+                              <p><strong>当前位置：</strong>{npcInfo.current_location}</p>
+                              <p><strong>当前活动：</strong>{npcInfo.current_event}</p>
+                              <p><strong>性格：</strong>{npcInfo.personality}</p>
+                              <div className="npc-schedule">
+                                <strong>计划表：</strong>
+                                <ul>
+                                  {npcInfo.schedule && npcInfo.schedule.length > 0 ? (
+                                    npcInfo.schedule.map((item: any, index: number) => (
+                                      <li key={index}>
+                                        {item.start_time}-{item.end_time} 在{item.location}：{item.event}
+                                      </li>
+                                    ))
+                                  ) : (
+                                    <li>无计划</li>
+                                  )}
+                                </ul>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   </div>

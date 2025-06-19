@@ -215,48 +215,52 @@ class GameService:
             }
     
     def _get_location_details(self, location_name: str, npc_locations: Dict[str, str], current_time: str) -> Dict[str, Any]:
-        """获取位置详情"""
+        """
+        获取位置详情
+        
+        Args:
+            location_name: 位置名称
+            npc_locations: NPC位置映射
+            current_time: 当前时间
+            
+        Returns:
+            位置详情
+        """
         try:
             from data.locations import all_locations_data, location_connections
-            from data.characters import all_actresses
+            from langgraph_refactor.nodes import get_npcs_at_location
+            
+            print(f"\n🔍 [DEBUG] 获取位置详情 - 位置: {location_name}")
+            print(f"🔍 [DEBUG] 输入参数:")
+            print(f"  - npc_locations: {npc_locations}")
+            print(f"  - current_time: {current_time}")
             
             location_data = all_locations_data.get(location_name, {})
             connections = location_connections.get(location_name, [])
             
-            # 获取当前位置的NPC
-            npcs_present = []
-            for actress in all_actresses:
-                npc_name = actress["name"]
-                if npc_locations.get(npc_name) == location_name:
-                    npc_info = {
-                        "name": npc_name,
-                        "personality": actress.get("personality", "友善"),
-                        "activity": "空闲"
-                    }
-                    
-                    # 查找当前时间的活动
-                    for event_info in actress.get("schedule", []):
-                        try:
-                            start_time = datetime.strptime(event_info["start_time"], "%H:%M").time()
-                            end_time = datetime.strptime(event_info["end_time"], "%H:%M").time()
-                            current_time_obj = datetime.strptime(current_time, "%H:%M").time()
-                            
-                            if start_time <= current_time_obj < end_time:
-                                npc_info["activity"] = event_info.get("activity", "忙碌")
-                                break
-                        except ValueError:
-                            continue
-                    
-                    npcs_present.append(npc_info)
+            print(f"🔍 [DEBUG] 位置数据:")
+            print(f"  - location_data: {location_data}")
+            print(f"  - connections: {connections}")
             
-            return {
+            # 使用修复后的get_npcs_at_location函数获取当前地点的NPC
+            npcs_present = get_npcs_at_location(location_name, npc_locations, current_time, None)
+            
+            result = {
                 "description": location_data.get("description", ""),
                 "connections": connections,
                 "npcs_present": npcs_present
             }
             
+            print(f"\n🔍 [DEBUG] 位置详情计算结果:")
+            print(f"  - 当前地点的NPC: {[npc['name'] for npc in npcs_present]}")
+            print(f"  - 完整结果: {result}")
+            
+            return result
+            
         except Exception as e:
-            print(f"获取位置详情失败: {e}")
+            print(f"❌ [DEBUG] 获取位置详情失败: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 "description": "",
                 "connections": [],

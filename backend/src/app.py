@@ -13,7 +13,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 sys.path.append(PROJECT_ROOT)
 
-from routers import game_router, debug_router, llm_router
+from routers import game_router, debug_router, llm_router, auth_router
+from utils.database import init_db, check_database_connection
 # from utils.logger_utils import LoggerUtils
 
 
@@ -26,8 +27,8 @@ def create_app() -> FastAPI:
     """
     app = FastAPI(
         title="LLM文字游戏 (MVC架构版本)",
-        description="基于LangGraph的LLM驱动文字游戏，采用MVC三层架构",
-        version="2.0.0",
+        description="基于LangGraph的LLM驱动文字游戏，采用MVC三层架构，支持用户认证",
+        version="2.1.0",
         docs_url="/docs",
         redoc_url="/redoc"
     )
@@ -79,6 +80,7 @@ def create_app() -> FastAPI:
         )
     
     # 注册路由
+    app.include_router(auth_router)  # 认证路由
     app.include_router(game_router)
     app.include_router(debug_router)
     app.include_router(llm_router)
@@ -88,20 +90,31 @@ def create_app() -> FastAPI:
     async def root():
         return {
             "message": "LLM文字游戏 - MVC架构版本",
-            "version": "2.0.0",
+            "version": "2.1.0",
             "status": "运行中",
             "architecture": "MVC三层架构",
-            "docs": "/docs",
-            "redoc": "/redoc"
+            "features": [
+                "用户认证系统",
+                "LangGraph工作流",
+                "实时对话",
+                "状态管理"
+            ],
+            "endpoints": {
+                "auth": "/auth - 用户认证",
+                "game": "/api - 游戏功能",
+                "docs": "/docs - API文档"
+            }
         }
     
     # 健康检查端点
     @app.get("/health")
     async def health_check():
+        db_status = "healthy" if check_database_connection() else "unhealthy"
         return {
             "status": "healthy",
+            "database": db_status,
             "timestamp": time.time(),
-            "version": "2.0.0"
+            "version": "2.1.0"
         }
     
     return app
@@ -115,7 +128,7 @@ if __name__ == "__main__":
     import uvicorn
     
     print("=" * 60)
-    print("🎮 LLM文字游戏 - MVC架构版本")
+    print("🎮 LLM文字游戏 - MVC架构版本 v2.1.0")
     print("=" * 60)
     print("🚀 正在启动游戏服务器...")
     print("")
@@ -123,14 +136,25 @@ if __name__ == "__main__":
     print("  - 架构模式: MVC三层架构")
     print("  - 工作流引擎: LangGraph")
     print("  - API框架: FastAPI")
-    print("  - 版本: 2.0.0")
+    print("  - 数据库: PostgreSQL/SQLite")
+    print("  - 认证: JWT")
+    print("  - 版本: 2.1.0")
     print("")
     print("🌐 服务地址:")
     print("  - 游戏API: http://localhost:8001")
     print("  - 接口文档: http://localhost:8001/docs")
     print("  - 前端地址: http://localhost:5173")
     print("")
+    print("🔐 认证端点:")
+    print("  - 注册: POST /auth/register")
+    print("  - 登录: POST /auth/login")
+    print("  - 用户信息: GET /auth/me")
+    print("")
     print("📝 主要特性:")
+    print("  ✅ 用户认证系统")
+    print("  ✅ 密码加密存储")
+    print("  ✅ JWT令牌认证")
+    print("  ✅ 数据库持久化")
     print("  ✅ 清晰的MVC分层架构")
     print("  ✅ 统一的错误处理")
     print("  ✅ 完整的日志系统")
@@ -139,13 +163,17 @@ if __name__ == "__main__":
     print("")
     print("=" * 60)
     
+    # 初始化数据库
+    print("🗄️ 初始化数据库...")
+    init_db()
+    
     # 启动服务器
     try:
         uvicorn.run(
             app, 
             host="0.0.0.0", 
             port=8001,
-            reload=True,
+            reload=False,  # 禁用reload模式避免警告
             log_level="info"
         )
     except KeyboardInterrupt:

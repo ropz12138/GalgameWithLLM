@@ -9,10 +9,12 @@ class GameStateModel:
     """游戏状态模型类"""
     
     def __init__(self, session_id: str = "default"):
+        from utils.config_loader import get_user_place, get_init_time
+        
         self.session_id = session_id
-        self.player_location = "linkai_room"
+        self.player_location = get_user_place()  # 从配置文件获取玩家初始位置
         self.player_personality = "普通"
-        self.current_time = "07:00"
+        self.current_time = get_init_time()  # 从配置文件获取游戏初始时间
         self.messages: List[Dict[str, str]] = []
         self.npc_locations: Dict[str, str] = {}
         self.npc_moods: Dict[str, str] = {}
@@ -48,10 +50,12 @@ class GameStateModel:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'GameStateModel':
         """从字典创建实例"""
+        from utils.config_loader import get_user_place, get_init_time
+        
         instance = cls(data.get("session_id", "default"))
-        instance.player_location = data.get("player_location", "linkai_room")
+        instance.player_location = data.get("player_location", get_user_place())
         instance.player_personality = data.get("player_personality", "普通")
-        instance.current_time = data.get("current_time", "07:00")
+        instance.current_time = data.get("current_time", get_init_time())
         instance.messages = data.get("messages", [])
         instance.npc_locations = data.get("npc_locations", {})
         instance.npc_moods = data.get("npc_moods", {})

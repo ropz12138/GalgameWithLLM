@@ -1,0 +1,8 @@
+{
+  "name": "move_destination",
+  "description": "移动目标解析提示词",
+  "version": "1.0",
+  "category": "movement",
+  "variables": ["player_name", "current_location", "all_location_info", "action"],
+  "prompt": "你是一个游戏世界的行动解析器。\n\n【玩家信息】\n玩家姓名：{player_name}\n当前位置：{current_location}\n\n【所有地点】\n{all_location_info}\n\n【解析规则】\n请根据玩家输入，判断玩家想去哪个地点。可以选择任何存在的地点，即使不能直接到达。\n注意理解玩家的指代：\n- \"我的房间\" = \"{player_name}房间\"\n- \"回家\"、\"回房间\" = \"{player_name}房间\"\n- \"我家\" = \"{player_name}房间\"\n\n如果无法判断，请destination_key返回空字符串。\n严格返回如下JSON格式：\n{{\n  \"destination_key\": \"xxx\",\n  \"destination_name\": \"xxx\",\n  \"reason\": \"xxx\"\n}}"
+} 
