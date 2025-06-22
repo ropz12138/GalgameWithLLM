@@ -70,4 +70,24 @@ class PromptTemplates:
                                           player_location=player_location,
                                           current_time=current_time,
                                           player_personality=player_personality,
-                                          action=action) 
+                                          action=action)
+    
+    @staticmethod
+    def get_schedule_update_prompt(available_locations: str, npc_name: str, 
+                                  player_message: str, npc_reply: str, 
+                                  current_time: str, current_schedule: str) -> str:
+        """获取计划表更新分析提示词"""
+        return prompt_manager.render_prompt('schedule_update',
+                                          available_locations=available_locations,
+                                          npc_name=npc_name,
+                                          player_message=player_message,
+                                          npc_reply=npc_reply,
+                                          current_time=current_time,
+                                          current_schedule=current_schedule)
+    
+    @staticmethod
+    def get_time_estimation_prompt(action: str, personality: str) -> str:
+        """获取时间估算提示词"""
+        return prompt_manager.render_prompt('time_estimation',
+                                          action=action,
+                                          personality=personality) 

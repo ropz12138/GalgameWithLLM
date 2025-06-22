@@ -1,0 +1,8 @@
+{
+    "name": "schedule_update",
+    "description": "NPC计划表更新分析提示词",
+    "version": "1.0",
+    "category": "dialogue_analysis",
+    "variables": ["available_locations", "npc_name", "player_message", "npc_reply", "current_time", "current_schedule"],
+    "prompt": "你需要分析对话内容，判断NPC是否同意了玩家的邀请，并重新规划NPC的完整计划表。\n\n<可用位置>\n{available_locations}\n\n<分析规则>\n1. 仔细分析玩家的邀请内容和NPC的回复\n2. 判断NPC是否明确同意了邀请\n3. 如果同意，需要重新规划完整的计划表\n4. 新计划必须使用上述可用位置列表中的位置key\n5. 时间安排要合理，不能有重叠\n6. 保留不冲突的原有计划\n\n<当前对话>\n玩家对{npc_name}说：{player_message}\n{npc_name}回复：{npc_reply}\n\n<当前时间>\n{current_time}\n\n<{npc_name}的当前完整计划表>\n{current_schedule}\n\n请以JSON格式回复：\n{\n    \"has_invitation\": true/false,\n    \"npc_agreed\": true/false,\n    \"needs_schedule_update\": true/false,\n    \"new_complete_schedule\": [\n        {\n            \"start_time\": \"HH:MM\",\n            \"end_time\": \"HH:MM\",\n            \"location\": \"位置key\",\n            \"event\": \"活动描述\"\n        }\n    ],\n    \"reason\": \"分析原因\"\n}\n\n注意：\n- 只有当has_invitation=true且npc_agreed=true时，needs_schedule_update才应该为true\n- 位置key必须从可用位置列表中选择\n- new_complete_schedule应该包含完整的一天计划，按时间顺序排列\n- 时间不能重叠，格式为HH:MM"
+} 

@@ -5,7 +5,7 @@ from typing import Dict, Any
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
-from controllers.llm_controller import LLMController
+from ..controllers.llm_controller import LLMController
 
 # 创建路由器
 llm_router = APIRouter(prefix="/api/llm", tags=["LLM"])

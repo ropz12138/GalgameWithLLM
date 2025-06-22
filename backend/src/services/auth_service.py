@@ -1,200 +1,173 @@
 """
-认证服务 - 处理用户认证相关的业务逻辑
+用户认证服务
 """
-from datetime import timedelta
-from typing import Optional, Dict, Any
+import logging
+from datetime import datetime, timedelta
+from typing import Optional
+from passlib.context import CryptContext
+from jose import JWTError, jwt
 from sqlalchemy.orm import Session
-from fastapi import HTTPException, status
+from sqlalchemy import create_engine, select
 
-from models.user_model import User, UserCreate, UserLogin, UserResponse, Token
-from utils.auth import (
-    authenticate_user, 
-    create_access_token, 
-    get_user_by_username,
-    get_user_by_email,
-    get_user_by_phone,
-    create_user
-)
+from ..database.models import User
+from ..database.config import get_database_url
+from ..models.auth_models import UserRegister, UserLogin, UserResponse, TokenData
 
+logger = logging.getLogger(__name__)
 
 class AuthService:
-    """认证服务类"""
+    """用户认证服务"""
+    
+    # JWT配置
+    SECRET_KEY = "your-secret-key-here-change-in-production"  # 生产环境需要修改
+    ALGORITHM = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES = 30 * 24 * 60  # 30天
     
     def __init__(self):
-        pass
+        self.pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+        self.engine = create_engine(get_database_url())
     
-    def register_user(self, db: Session, user_data: UserCreate) -> Dict[str, Any]:
-        """
-        注册新用户
-        
-        Args:
-            db: 数据库会话
-            user_data: 用户注册数据
-            
-        Returns:
-            注册结果
-        """
+    def _get_db_session(self) -> Session:
+        """获取数据库会话"""
+        return Session(self.engine)
+    
+    def verify_password(self, plain_password: str, hashed_password: str) -> bool:
+        """验证密码"""
+        return self.pwd_context.verify(plain_password, hashed_password)
+    
+    def get_password_hash(self, password: str) -> str:
+        """获取密码哈希"""
+        return self.pwd_context.hash(password)
+    
+    def create_access_token(self, data: dict, expires_delta: Optional[timedelta] = None):
+        """创建访问令牌"""
+        to_encode = data.copy()
+        if expires_delta:
+            expire = datetime.utcnow() + expires_delta
+        else:
+            expire = datetime.utcnow() + timedelta(minutes=self.ACCESS_TOKEN_EXPIRE_MINUTES)
+        to_encode.update({"exp": expire})
+        encoded_jwt = jwt.encode(to_encode, self.SECRET_KEY, algorithm=self.ALGORITHM)
+        return encoded_jwt
+    
+    def verify_token(self, token: str) -> Optional[str]:
+        """验证令牌并返回用户名"""
+        try:
+            payload = jwt.decode(token, self.SECRET_KEY, algorithms=[self.ALGORITHM])
+            username: str = payload.get("sub")
+            if username is None:
+                return None
+            return username
+        except JWTError:
+            return None
+    
+    def get_user_by_username(self, username: str) -> Optional[User]:
+        """根据用户名获取用户"""
+        try:
+            with self._get_db_session() as session:
+                stmt = select(User).where(User.username == username)
+                result = session.execute(stmt)
+                user = result.scalar_one_or_none()
+                return user
+        except Exception as e:
+            logger.error(f"获取用户失败: {e}")
+            return None
+    
+    def authenticate_user(self, username: str, password: str) -> Optional[User]:
+        """验证用户"""
+        user = self.get_user_by_username(username)
+        if not user:
+            return None
+        if not self.verify_password(password, user.hashed_password):
+            return None
+        return user
+    
+    def register_user(self, user_data: UserRegister) -> Optional[User]:
+        """注册用户"""
         try:
             # 检查用户名是否已存在
-            if get_user_by_username(db, user_data.username):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="用户名已存在"
+            existing_user = self.get_user_by_username(user_data.username)
+            if existing_user:
+                raise ValueError("用户名已存在")
+            
+            # 创建新用户
+            with self._get_db_session() as session:
+                hashed_password = self.get_password_hash(user_data.password)
+                new_user = User(
+                    username=user_data.username,
+                    hashed_password=hashed_password,
+                    email=user_data.email,
+                    phone=user_data.phone,
+                    is_active=True,
+                    created_at=datetime.utcnow()
                 )
-            
-            # 检查邮箱是否已存在（如果提供了邮箱）
-            if user_data.email and get_user_by_email(db, user_data.email):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="邮箱已被注册"
-                )
-            
-            # 检查电话是否已存在（如果提供了电话）
-            if user_data.phone and get_user_by_phone(db, user_data.phone):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="电话号码已被注册"
-                )
-            
-            # 验证密码强度
-            if len(user_data.password) < 6:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="密码长度至少6位"
-                )
-            
-            # 创建用户
-            user = create_user(db, user_data)
-            
-            return {
-                "success": True,
-                "message": "用户注册成功",
-                "user": {
-                    "id": user.id,
-                    "username": user.username,
-                    "email": user.email,
-                    "phone": user.phone,
-                    "created_at": user.created_at
-                }
-            }
-            
-        except HTTPException:
-            raise
+                session.add(new_user)
+                session.commit()
+                session.refresh(new_user)
+                
+                logger.info(f"用户注册成功: {user_data.username}")
+                return new_user
+                
         except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"注册失败: {str(e)}"
-            )
+            logger.error(f"用户注册失败: {e}")
+            raise e
     
-    def login_user(self, db: Session, user_data: UserLogin) -> Dict[str, Any]:
-        """
-        用户登录
-        
-        Args:
-            db: 数据库会话
-            user_data: 用户登录数据
-            
-        Returns:
-            登录结果
-        """
+    def login_user(self, login_data: UserLogin) -> Optional[dict]:
+        """用户登录"""
         try:
             # 验证用户
-            user = authenticate_user(db, user_data.username, user_data.password)
+            user = self.authenticate_user(login_data.username, login_data.password)
             if not user:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="用户名或密码错误"
-                )
-            
-            # 检查用户是否被禁用
-            if not user.is_active:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="用户已被禁用"
-                )
+                return None
             
             # 创建访问令牌
-            access_token_expires = timedelta(minutes=30)
-            access_token = create_access_token(
-                data={"sub": user.username}, 
-                expires_delta=access_token_expires
+            access_token_expires = timedelta(minutes=self.ACCESS_TOKEN_EXPIRE_MINUTES)
+            access_token = self.create_access_token(
+                data={"sub": user.username}, expires_delta=access_token_expires
             )
             
+            # 转换用户数据
+            user_response = UserResponse(
+                id=user.id,
+                username=user.username,
+                email=user.email,
+                phone=user.phone,
+                is_active=user.is_active,
+                created_at=user.created_at.isoformat()
+            )
+            
+            logger.info(f"用户登录成功: {user.username}")
             return {
-                "success": True,
-                "message": "登录成功",
                 "access_token": access_token,
                 "token_type": "bearer",
-                "user": {
-                    "id": user.id,
-                    "username": user.username,
-                    "email": user.email,
-                    "phone": user.phone,
-                    "created_at": user.created_at
-                }
+                "user": user_response
             }
             
-        except HTTPException:
-            raise
         except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"登录失败: {str(e)}"
-            )
+            logger.error(f"用户登录失败: {e}")
+            return None
     
-    def get_user_info(self, db: Session, user: User) -> Dict[str, Any]:
-        """
-        获取用户信息
-        
-        Args:
-            db: 数据库会话
-            user: 当前用户
-            
-        Returns:
-            用户信息
-        """
+    def create_admin_user(self):
+        """创建管理员用户"""
         try:
-            return {
-                "success": True,
-                "user": {
-                    "id": user.id,
-                    "username": user.username,
-                    "email": user.email,
-                    "phone": user.phone,
-                    "is_active": user.is_active,
-                    "created_at": user.created_at,
-                    "updated_at": user.updated_at
-                }
-            }
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"获取用户信息失败: {str(e)}"
+            # 检查是否已存在admin用户
+            admin_user = self.get_user_by_username("admin")
+            if admin_user:
+                logger.info("管理员用户已存在")
+                return
+            
+            # 创建admin用户
+            admin_data = UserRegister(
+                username="admin",
+                password="admin123",
+                email="admin@example.com"
             )
-    
-    def validate_username(self, db: Session, username: str) -> Dict[str, Any]:
-        """
-        验证用户名是否可用
-        
-        Args:
-            db: 数据库会话
-            username: 用户名
             
-        Returns:
-            验证结果
-        """
-        try:
-            user = get_user_by_username(db, username)
-            available = user is None
+            self.register_user(admin_data)
+            logger.info("管理员用户创建成功: admin/admin123")
             
-            return {
-                "success": True,
-                "username": username,
-                "available": available,
-                "message": "用户名可用" if available else "用户名已存在"
-            }
         except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"验证用户名失败: {str(e)}"
-            ) 
+            logger.error(f"创建管理员用户失败: {e}")
+
+# 全局认证服务实例
+auth_service = AuthService() 

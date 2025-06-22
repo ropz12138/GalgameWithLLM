@@ -1,13 +1,27 @@
-fastapi
-uvicorn[standard]
-python-dotenv
-langchain
-langchain-openai
-pydantic
+# Web框架
+fastapi==0.104.1
+uvicorn==0.24.0
+python-multipart==0.0.6
+
+# LLM相关
+langchain==0.1.0
+langchain-openai==0.0.2
+langchain-core==0.1.0
 langgraph
+
+# 数据验证和类型
+pydantic==2.5.0
 typing-extensions
-sqlalchemy
-psycopg2-binary
-passlib[bcrypt]
-python-jose[cryptography]
-python-multipart
+
+# 数据库相关
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+alembic==1.13.1
+
+# 认证和安全
+passlib==1.7.4
+bcrypt==4.1.2
+python-jose[cryptography]==3.3.0
+
+# 环境配置
+python-dotenv

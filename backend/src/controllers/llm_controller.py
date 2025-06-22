@@ -4,7 +4,7 @@ LLM控制器 - 处理LLM相关的HTTP请求
 from typing import Dict, Any
 from fastapi import HTTPException
 
-from services.llm_service import LLMService
+from ..services.llm_service import LLMService
 
 
 class LLMController:

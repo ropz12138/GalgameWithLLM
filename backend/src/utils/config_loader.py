@@ -68,4 +68,4 @@ def get_init_time() -> str:
         游戏初始时间
     """
     game_config = get_game_config()
-    return game_config.get('init_time', '07:00') 
+    return game_config.get('init_time', '2024-01-15 07:00') 

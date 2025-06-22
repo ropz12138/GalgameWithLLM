@@ -3,17 +3,23 @@
 """
 from typing import Dict, Any, List
 from fastapi import HTTPException
+import sys
+import os
 
-from services.workflow_service import WorkflowService
-from services.state_service import StateService
+# 添加项目根目录到Python路径
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(PROJECT_ROOT)
+
+from ..services.state_service import StateService
 
 
 class DebugController:
     """调试控制器类"""
     
     def __init__(self):
-        self.workflow_service = WorkflowService()
         self.state_service = StateService()
+        from ..services.npc_service import NPCService
+        self.npc_service = NPCService()
     
     def get_workflow_info(self) -> Dict[str, Any]:
         """
@@ -23,7 +29,19 @@ class DebugController:
             工作流信息
         """
         try:
-            return self.workflow_service.get_workflow_info()
+            return {
+                "message": "新架构已移除WorkflowService",
+                "architecture": "MVC with Services",
+                "services": [
+                    "GameService",
+                    "StateService", 
+                    "DialogueService",
+                    "NPCService",
+                    "LocationService",
+                    "MovementService",
+                    "ActionRouterService"
+                ]
+            }
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"获取工作流信息失败: {str(e)}")
     
@@ -114,6 +132,7 @@ class DebugController:
             print(f"  - 当前时间: {current_time}")
             print(f"  - 玩家位置: {player_location}")
             print(f"  - 游戏状态中的NPC位置: {game_state.npc_locations}")
+            print(f"  - 动态计划表: {getattr(game_state, 'npc_dynamic_schedules', {})}")
             
             # 获取当前时间对象
             current_time_obj = datetime.strptime(current_time, "%H:%M").time()
@@ -129,40 +148,25 @@ class DebugController:
                 print(f"\n🔍 [DEBUG] 处理NPC: {npc_name}")
                 print(f"  - 原始数据: {actress}")
                 
-                # 获取NPC当前位置和活动
-                current_location = "未知地点"
-                current_event = "空闲"
+                # 使用NPCService获取当前位置和活动（包括动态计划表）
+                current_location, current_event = self.npc_service.get_npc_current_location_and_event(
+                    npc_name, current_time_obj, game_state
+                )
                 
-                # 查找当前时间的活动
-                print(f"  - 检查计划表: {actress.get('schedule', [])}")
-                for event_info in actress.get("schedule", []):
-                    try:
-                        start_time = datetime.strptime(event_info["start_time"], "%H:%M").time()
-                        end_time = datetime.strptime(event_info["end_time"], "%H:%M").time()
-                        
-                        print(f"    - 检查计划: {event_info['start_time']}-{event_info['end_time']} 在{event_info['location']}：{event_info.get('event', '忙碌')}")
-                        print(f"    - 时间匹配: {start_time} <= {current_time_obj} < {end_time} = {start_time <= current_time_obj < end_time}")
-                        
-                        if start_time <= current_time_obj < end_time:
-                            current_location = event_info["location"]
-                            current_event = event_info.get("event", "忙碌")
-                            print(f"    ✅ 匹配成功! 位置: {current_location}, 活动: {current_event}")
-                            break
-                    except ValueError as e:
-                        print(f"    ❌ 时间解析错误: {e}")
-                        continue
+                print(f"  ✅ 使用NPCService获取状态:")
+                print(f"    - 当前位置: {current_location}")
+                print(f"    - 当前活动: {current_event}")
                 
-                # 如果没找到当前活动，使用默认位置
-                if current_location == "未知地点":
-                    current_location = actress.get("default_location", "未知地点")
-                    print(f"  - 使用默认位置: {current_location}")
+                # 获取当前有效的计划表（包括动态更新的）
+                current_schedule = self.npc_service.get_npc_current_schedule(npc_name, game_state)
+                print(f"    - 当前计划表: {current_schedule}")
                 
                 # 构建NPC状态信息
                 npc_status[npc_name] = {
                     "current_location": current_location,
                     "current_event": current_event,
                     "personality": actress.get("personality", "友善"),
-                    "schedule": actress.get("schedule", [])
+                    "schedule": current_schedule  # 使用当前有效的计划表
                 }
                 
                 print(f"  - 最终状态: 位置={current_location}, 活动={current_event}")
@@ -225,7 +229,6 @@ class DebugController:
         """
         try:
             self.state_service.clear_session(session_id)
-            self.workflow_service.reset_workflow()
             return {"message": f"会话 {session_id} 已重置"}
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"重置会话失败: {str(e)}")

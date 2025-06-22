@@ -3,6 +3,12 @@
 """
 from typing import Dict, Any, Optional
 from datetime import datetime
+import sys
+import os
+
+# 添加src目录到Python路径，以便导入utils
+SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(SRC_DIR)
 
 
 class PlayerModel:

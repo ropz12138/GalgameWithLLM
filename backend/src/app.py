@@ -13,9 +13,15 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 sys.path.append(PROJECT_ROOT)
 
-from routers import game_router, debug_router, llm_router, auth_router
-from utils.database import init_db, check_database_connection
+from .routers.game_router import game_router
+from .routers.debug_router import debug_router
+from .routers.llm_router import llm_router
+from .routers.story_router import story_router
+from .controllers.auth_controller import router as auth_router
 # from utils.logger_utils import LoggerUtils
+
+# 数据库初始化
+from .database.init_db import init_database
 
 
 def create_app() -> FastAPI:
@@ -27,11 +33,60 @@ def create_app() -> FastAPI:
     """
     app = FastAPI(
         title="LLM文字游戏 (MVC架构版本)",
-        description="基于LangGraph的LLM驱动文字游戏，采用MVC三层架构，支持用户认证",
-        version="2.1.0",
+        description="基于新架构的LLM驱动文字游戏，采用MVC三层架构",
+        version="2.0.0",
         docs_url="/docs",
         redoc_url="/redoc"
     )
+    
+    # 应用启动事件：初始化数据库
+    @app.on_event("startup")
+    async def startup_event():
+        """应用启动时的初始化任务"""
+        print("\n🚀 应用启动事件开始...")
+        
+        # 初始化数据库
+        print("📊 初始化数据库...")
+        try:
+            success = init_database(drop_existing=False)
+            if success:
+                print("✅ 数据库初始化成功")
+                
+                # 运行数据迁移
+                print("🔄 运行数据迁移...")
+                try:
+                    from .database.migrations import run_migrations
+                    story_id = run_migrations()
+                    if story_id:
+                        print(f"✅ 数据迁移成功，默认故事ID: {story_id}")
+                    else:
+                        print("⚠️ 数据迁移失败，但应用将继续运行")
+                except Exception as migration_error:
+                    print(f"❌ 数据迁移异常: {migration_error}")
+                    print("⚠️ 应用将继续运行")
+            else:
+                print("❌ 数据库初始化失败，但应用将继续运行")
+        except Exception as e:
+            print(f"❌ 数据库初始化异常: {e}")
+            print("⚠️ 应用将在没有数据库的情况下运行")
+        
+        # 创建管理员用户
+        print("👤 创建管理员用户...")
+        try:
+            from .services.auth_service import auth_service
+            auth_service.create_admin_user()
+        except Exception as e:
+            print(f"❌ 创建管理员用户失败: {e}")
+        
+        print("✅ 应用启动事件完成\n")
+    
+    # 应用关闭事件
+    @app.on_event("shutdown")
+    async def shutdown_event():
+        """应用关闭时的清理任务"""
+        print("\n👋 应用正在关闭...")
+        # 这里可以添加数据库连接池关闭等清理操作
+        print("✅ 应用关闭事件完成")
     
     # CORS配置
     app.add_middleware(
@@ -80,41 +135,49 @@ def create_app() -> FastAPI:
         )
     
     # 注册路由
-    app.include_router(auth_router)  # 认证路由
+    app.include_router(auth_router, prefix="/api/auth", tags=["认证"])
     app.include_router(game_router)
     app.include_router(debug_router)
     app.include_router(llm_router)
+    app.include_router(story_router)
     
     # 根端点
     @app.get("/")
     async def root():
         return {
             "message": "LLM文字游戏 - MVC架构版本",
-            "version": "2.1.0",
+            "version": "2.0.0",
             "status": "运行中",
             "architecture": "MVC三层架构",
-            "features": [
-                "用户认证系统",
-                "LangGraph工作流",
-                "实时对话",
-                "状态管理"
-            ],
-            "endpoints": {
-                "auth": "/auth - 用户认证",
-                "game": "/api - 游戏功能",
-                "docs": "/docs - API文档"
-            }
+            "docs": "/docs",
+            "redoc": "/redoc"
         }
     
     # 健康检查端点
     @app.get("/health")
     async def health_check():
-        db_status = "healthy" if check_database_connection() else "unhealthy"
         return {
             "status": "healthy",
-            "database": db_status,
             "timestamp": time.time(),
-            "version": "2.1.0"
+            "version": "2.0.0"
+        }
+    
+    # 数据库状态检查端点
+    @app.get("/db-status")
+    async def database_status():
+        """检查数据库连接状态"""
+        try:
+            from .database.config import test_connection
+            is_connected = test_connection()
+            return {
+                "database_connected": is_connected,
+                "timestamp": time.time()
+            }
+        except Exception as e:
+            return {
+                "database_connected": False,
+                "error": str(e),
+                "timestamp": time.time()
         }
     
     return app
@@ -128,34 +191,27 @@ if __name__ == "__main__":
     import uvicorn
     
     print("=" * 60)
-    print("🎮 LLM文字游戏 - MVC架构版本 v2.1.0")
+    print("🎮 LLM文字游戏 - MVC架构版本")
     print("=" * 60)
     print("🚀 正在启动游戏服务器...")
     print("")
     print("📊 架构信息:")
     print("  - 架构模式: MVC三层架构")
-    print("  - 工作流引擎: LangGraph")
+    print("  - 工作流引擎: 新架构 (无LangGraph)")
     print("  - API框架: FastAPI")
-    print("  - 数据库: PostgreSQL/SQLite")
-    print("  - 认证: JWT")
-    print("  - 版本: 2.1.0")
+    print("  - 数据库: PostgreSQL")
+    print("  - 版本: 2.0.0")
     print("")
     print("🌐 服务地址:")
     print("  - 游戏API: http://localhost:8001")
     print("  - 接口文档: http://localhost:8001/docs")
+    print("  - 数据库状态: http://localhost:8001/db-status")
     print("  - 前端地址: http://localhost:5173")
     print("")
-    print("🔐 认证端点:")
-    print("  - 注册: POST /auth/register")
-    print("  - 登录: POST /auth/login")
-    print("  - 用户信息: GET /auth/me")
-    print("")
     print("📝 主要特性:")
-    print("  ✅ 用户认证系统")
-    print("  ✅ 密码加密存储")
-    print("  ✅ JWT令牌认证")
-    print("  ✅ 数据库持久化")
     print("  ✅ 清晰的MVC分层架构")
+    print("  ✅ PostgreSQL数据库持久化")
+    print("  ✅ 自动数据库表结构同步")
     print("  ✅ 统一的错误处理")
     print("  ✅ 完整的日志系统")
     print("  ✅ 标准化的响应格式")
@@ -163,17 +219,13 @@ if __name__ == "__main__":
     print("")
     print("=" * 60)
     
-    # 初始化数据库
-    print("🗄️ 初始化数据库...")
-    init_db()
-    
     # 启动服务器
     try:
         uvicorn.run(
             app, 
             host="0.0.0.0", 
             port=8001,
-            reload=False,  # 禁用reload模式避免警告
+            reload=True,
             log_level="info"
         )
     except KeyboardInterrupt:

@@ -5,7 +5,7 @@ from typing import Dict, Any, List
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 
-from services.game_service import GameService
+from ..services.game_service import GameService
 
 
 class GameController:

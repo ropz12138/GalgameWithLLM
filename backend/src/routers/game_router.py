@@ -2,11 +2,10 @@
 游戏路由 - 定义游戏相关的API端点
 """
 from typing import List, Dict
-from fastapi import APIRouter, Query, Depends, HTTPException, status
+from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
-from controllers.game_controller import GameController
-from utils.auth import get_current_user
+from ..controllers.game_controller import GameController
 
 # 创建路由器
 game_router = APIRouter(prefix="/api", tags=["游戏"])
@@ -38,16 +37,12 @@ async def root():
 
 
 @game_router.get("/game_state")
-async def get_current_game_state(
-    session_id: str = Query(default="default", description="会话ID"),
-    current_user = Depends(get_current_user)
-):
+async def get_current_game_state(session_id: str = Query(default="default", description="会话ID")):
     """
     获取当前游戏状态
     
     Args:
         session_id: 会话ID
-        current_user: 当前认证用户
         
     Returns:
         游戏状态
@@ -56,16 +51,12 @@ async def get_current_game_state(
 
 
 @game_router.post("/process_action")
-async def process_player_action(
-    request: ActionRequest,
-    current_user = Depends(get_current_user)
-):
+async def process_player_action(request: ActionRequest):
     """
     处理玩家行动
     
     Args:
         request: 行动请求
-        current_user: 当前认证用户
         
     Returns:
         处理结果
@@ -74,16 +65,12 @@ async def process_player_action(
 
 
 @game_router.post("/stream_action")
-async def stream_player_action(
-    request: ActionRequest,
-    current_user = Depends(get_current_user)
-):
+async def stream_player_action(request: ActionRequest):
     """
     流式处理玩家行动
     
     Args:
         request: 行动请求
-        current_user: 当前认证用户
         
     Returns:
         流式响应
@@ -92,16 +79,12 @@ async def stream_player_action(
 
 
 @game_router.post("/initialize_game")
-async def initialize_game(
-    session_id: str = Query(default="default", description="会话ID"),
-    current_user = Depends(get_current_user)
-):
+async def initialize_game(session_id: str = Query(default="default", description="会话ID")):
     """
     初始化游戏
     
     Args:
         session_id: 会话ID
-        current_user: 当前认证用户
         
     Returns:
         初始化结果
@@ -112,8 +95,7 @@ async def initialize_game(
 @game_router.get("/npc_dialogue_history/{npc_name}")
 async def get_npc_dialogue_history(
     npc_name: str,
-    session_id: str = Query(default="default", description="会话ID"),
-    current_user = Depends(get_current_user)
+    session_id: str = Query(default="default", description="会话ID")
 ):
     """
     获取NPC对话历史
@@ -121,7 +103,6 @@ async def get_npc_dialogue_history(
     Args:
         npc_name: NPC名称
         session_id: 会话ID
-        current_user: 当前认证用户
         
     Returns:
         NPC对话历史
@@ -133,8 +114,7 @@ async def get_npc_dialogue_history(
 async def continue_dialogue_with_npc(
     npc_name: str,
     request: DialogueRequest,
-    session_id: str = Query(default="default", description="会话ID"),
-    current_user = Depends(get_current_user)
+    session_id: str = Query(default="default", description="会话ID")
 ):
     """
     继续与NPC对话
@@ -143,7 +123,6 @@ async def continue_dialogue_with_npc(
         npc_name: NPC名称
         request: 对话请求
         session_id: 会话ID
-        current_user: 当前认证用户
         
     Returns:
         对话结果

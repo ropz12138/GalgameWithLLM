@@ -82,16 +82,34 @@ class NPCModel:
     
     def get_current_activity(self, current_time: str) -> Dict[str, Any]:
         """获取当前时间的活动"""
-        current_time_obj = datetime.strptime(current_time, "%H:%M").time()
-        
-        for event in self.schedule:
-            try:
-                start_time = datetime.strptime(event["start_time"], "%H:%M").time()
-                end_time = datetime.strptime(event["end_time"], "%H:%M").time()
-                
-                if start_time <= current_time_obj < end_time:
-                    return event
-            except (ValueError, KeyError):
-                continue
-        
-        return {"activity": "空闲", "location": self.location} 
+        try:
+            # 导入时间工具类
+            import sys
+            import os
+            src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            sys.path.append(src_dir)
+            from utils.time_utils import TimeUtils
+            
+            for event in self.schedule:
+                try:
+                    if TimeUtils.is_time_in_range(current_time, event["start_time"], event["end_time"]):
+                        return event
+                except (ValueError, KeyError):
+                    continue
+            
+            return {"activity": "空闲", "location": self.location}
+        except Exception as e:
+            # 降级到原有逻辑
+            current_time_obj = datetime.strptime(current_time, "%H:%M").time()
+            
+            for event in self.schedule:
+                try:
+                    start_time = datetime.strptime(event["start_time"], "%H:%M").time()
+                    end_time = datetime.strptime(event["end_time"], "%H:%M").time()
+                    
+                    if start_time <= current_time_obj < end_time:
+                        return event
+                except (ValueError, KeyError):
+                    continue
+            
+            return {"activity": "空闲", "location": self.location} 
