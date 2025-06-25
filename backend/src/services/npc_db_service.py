@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..database.config import get_session
-from ..database.models import NPC, Story
+from ..database.models import NPC, Story, Entity
 
 
 class NPCDBService:
@@ -57,6 +57,20 @@ class NPCDBService:
                 schedule=schedule or []
             )
             session.add(npc)
+            session.flush()  # 获取npc.id
+            
+            # 同时创建对应的NPC实体记录
+            # 生成key_name：将中文名转换为拼音或使用简化版本
+            key_name = self._generate_npc_key_name(name)
+            entity = Entity(
+                entity_type=1,  # npc type
+                story_id=story_id,
+                name=name,
+                key_name=key_name,
+                description=f"NPC角色: {name}",
+                entity_metadata={}
+            )
+            session.add(entity)
             session.commit()
             
             return {
@@ -72,6 +86,24 @@ class NPCDBService:
             return {"success": False, "error": f"创建NPC失败: {str(e)}"}
         finally:
             session.close()
+    
+    def _generate_npc_key_name(self, name: str) -> str:
+        """生成NPC的key_name"""
+        # 简单的映射规则，可以根据需要扩展
+        name_mapping = {
+            "林凯": "linkai",
+            "林若曦": "linruoxi", 
+            "张雨晴": "zhangyuqing"
+        }
+        
+        # 如果有预定义映射，使用它
+        if name in name_mapping:
+            return name_mapping[name]
+        
+        # 否则使用简化版本（去除特殊字符，转换为小写）
+        import re
+        key_name = re.sub(r'[^\w]', '', name).lower()
+        return key_name or "npc_" + str(hash(name) % 1000)
     
     def get_npcs_by_story(self, story_id: int) -> Dict[str, Any]:
         """
@@ -298,7 +330,19 @@ class NPCDBService:
                         schedule=npc_data.get('schedule', [])
                     )
                     session.add(npc)
-                    session.flush()
+                    session.flush()  # 获取npc.id
+                    
+                    # 同时创建对应的NPC实体记录
+                    key_name = self._generate_npc_key_name(npc_data.get('name'))
+                    entity = Entity(
+                        entity_type=1,  # npc type
+                        story_id=story_id,
+                        name=npc_data.get('name'),
+                        key_name=key_name,
+                        description=f"NPC角色: {npc_data.get('name')}",
+                        entity_metadata={}
+                    )
+                    session.add(entity)
                     updated_npcs.append(npc.to_dict())
             
             session.commit()

@@ -86,7 +86,7 @@ class PromptTemplates:
                                           player_location=player_location,
                                           current_time=current_time,
                                           player_personality=player_personality,
-                                          action=action)
+                                          action=action) 
     
     @staticmethod
     def get_schedule_update_prompt(available_locations: str, npc_name: str, 

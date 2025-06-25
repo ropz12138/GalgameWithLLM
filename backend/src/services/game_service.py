@@ -324,39 +324,38 @@ class GameService:
                 "messages": all_messages
             }
     
-    async def _update_game_state(self, result: Dict[str, Any], game_state: GameStateModel, session_id: str):
+    async def _update_game_state(self, result: Dict, game_state: GameStateModel, session_id: str):
         """更新游戏状态"""
-        print(f"\n📊 [GameService] 更新游戏状态")
-        
-        # 更新时间
-        if "current_time" in result:
-            game_state.current_time = result["current_time"]
-            print(f"  ⏰ 更新时间: {game_state.current_time}")
-        
-        # 更新位置
-        if "player_location" in result:
-            game_state.player_location = result["player_location"]
-            print(f"  📍 更新位置: {game_state.player_location}")
-        
-        # 更新NPC位置（基于新时间）
-        game_state.npc_locations = self.npc_service.update_npc_locations_by_time(
-            game_state.current_time, game_state
-        )
-        
-        # 更新对话历史
-        if "npc_dialogue_histories" in result:
-            for npc_name, history in result["npc_dialogue_histories"].items():
-                game_state.npc_dialogue_histories[npc_name] = history
-                print(f"  💬 更新 {npc_name} 对话历史: {len(history)} 条")
-        
-        # 添加消息到游戏状态
-        if "messages" in result:
-            game_state.messages.extend(result["messages"])
-            print(f"  💬 添加消息: {len(result['messages'])} 条")
-        
-        # 保存状态
-        self.state_service.save_game_state(session_id, game_state, story_id)
-        print(f"  💾 状态已保存")
+        try:
+            logger.info("📊 [GameService] 更新游戏状态")
+            
+            # 更新时间
+            if 'current_time' in result:
+                game_state.current_time = result['current_time']
+                logger.info(f"  ⏰ 更新时间: {result['current_time']}")
+            
+            # 更新位置
+            if 'player_location' in result:
+                game_state.player_location = result['player_location']
+                logger.info(f"  📍 更新位置: {result['player_location']}")
+            
+            # 更新NPC位置
+            npc_locations = self.npc_service.update_npc_locations_by_time(
+                game_state.current_time, game_state.story_id
+            )
+            game_state.npc_locations = npc_locations
+            
+            # 添加消息到内存
+            if 'messages' in result:
+                for msg in result['messages']:
+                    game_state.add_message(msg)
+                logger.info(f"  💬 添加消息: {len(result['messages'])} 条")
+            
+            # 注意：不再保存到缓存，状态完全依赖数据库持久化
+            
+        except Exception as e:
+            logger.error(f"❌ [GameService] 更新游戏状态失败: {str(e)}")
+            raise
     
     async def _calculate_exploration_time(self, action: str, personality: str) -> int:
         """计算探索耗时"""
@@ -725,19 +724,20 @@ class GameService:
                         structured_data={"action_type": action_type, "dialogue_type": "sensory"}
                     )
                 elif action_type == "move":
-                    # 移动行动
+                    # 移动行动 - 使用移动后的位置
+                    new_location = result.get("player_location", game_state.player_location)
                     await self.message_service.save_system_action(
                         user_id=user_id,
                         story_id=story_id,
                         session_id=session_id,
                         action_result=content,
-                        location=game_state.player_location,
+                        location=new_location,  # 使用移动后的位置
                         game_time=msg_game_time,
                         sub_type="movement",
-                        metadata={"action_type": action_type, "new_location": result.get("player_location")}
+                        metadata={"action_type": action_type, "new_location": new_location}
                     )
                     
-                    # 如果有五感反馈，也要保存
+                    # 如果有五感反馈，也要保存 - 同样使用移动后的位置
                     if "sensory_feedback" in result:
                         sensory_data = result["sensory_feedback"]
                         await self.message_service.save_sensory_feedback(
@@ -745,7 +745,7 @@ class GameService:
                             story_id=story_id,
                             session_id=session_id,
                             feedback=sensory_data.get("description", ""),
-                            location=game_state.player_location,
+                            location=new_location,  # 使用移动后的位置
                             game_time=msg_game_time,
                             structured_data=sensory_data
                         )

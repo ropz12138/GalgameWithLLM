@@ -86,8 +86,8 @@ export function LoginPage() {
           <div className="mt-6 p-4 bg-blue-500/20 border border-blue-500/50 rounded-lg">
             <p className="text-blue-200 text-sm font-medium mb-2">🎯 测试账户</p>
             <p className="text-blue-100 text-sm">
-              用户名: <span className="font-mono bg-blue-500/30 px-2 py-1 rounded">admin</span><br />
-              密码: <span className="font-mono bg-blue-500/30 px-2 py-1 rounded">admin123</span>
+              {/* 用户名: <span className="font-mono bg-blue-500/30 px-2 py-1 rounded">admin</span><br />
+              密码: <span className="font-mono bg-blue-500/30 px-2 py-1 rounded">admin123</span> */}
             </p>
           </div>
         </div>

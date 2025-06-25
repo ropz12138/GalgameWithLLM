@@ -5,6 +5,7 @@ from typing import Dict, Any, List
 from fastapi import HTTPException
 import sys
 import os
+from datetime import datetime
 
 # 添加项目根目录到Python路径
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,18 +46,20 @@ class DebugController:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"获取工作流信息失败: {str(e)}")
     
-    def get_workflow_state(self, session_id: str = "default") -> Dict[str, Any]:
+    async def get_workflow_state(self, session_id: str = "default", user_id: int = 1, story_id: int = 1) -> Dict[str, Any]:
         """
         获取工作流状态
         
         Args:
             session_id: 会话ID
+            user_id: 用户ID
+            story_id: 故事ID
             
         Returns:
             工作流状态
         """
         try:
-            game_state = self.state_service.get_game_state(session_id)
+            game_state = await self.state_service.get_game_state(session_id, user_id, story_id)
             return game_state.to_dict()
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"获取工作流状态失败: {str(e)}")
@@ -78,18 +81,20 @@ class DebugController:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"获取位置信息失败: {str(e)}")
     
-    def get_npc_locations(self, session_id: str = "default") -> Dict[str, str]:
+    async def get_npc_locations(self, session_id: str = "default", user_id: int = 1, story_id: int = 1) -> Dict[str, str]:
         """
         获取NPC位置
         
         Args:
             session_id: 会话ID
+            user_id: 用户ID
+            story_id: 故事ID
             
         Returns:
             NPC位置信息
         """
         try:
-            game_state = self.state_service.get_game_state(session_id)
+            game_state = await self.state_service.get_game_state(session_id, user_id, story_id)
             return game_state.npc_locations
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"获取NPC位置失败: {str(e)}")
@@ -108,23 +113,24 @@ class DebugController:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"获取NPC信息失败: {str(e)}")
     
-    def get_npc_status_info(self, session_id: str = "default") -> Dict[str, Any]:
+    async def get_npc_status_info(self, session_id: str = "default", user_id: int = 1, story_id: int = 1) -> Dict[str, Any]:
         """
         获取NPC状态信息
         
         Args:
             session_id: 会话ID
+            user_id: 用户ID
+            story_id: 故事ID
             
         Returns:
             NPC状态信息
         """
         try:
             from data.characters import all_actresses
-            from datetime import datetime
             
-            print(f"\n🔍 [DEBUG] 开始获取NPC状态信息 - session_id: {session_id}")
+            print(f"\n🔍 [DEBUG] 开始获取NPC状态信息 - session_id: {session_id}, user_id: {user_id}, story_id: {story_id}")
             
-            game_state = self.state_service.get_game_state(session_id)
+            game_state = await self.state_service.get_game_state(session_id, user_id, story_id)
             current_time = game_state.current_time
             player_location = game_state.player_location
             
@@ -134,8 +140,8 @@ class DebugController:
             print(f"  - 游戏状态中的NPC位置: {game_state.npc_locations}")
             print(f"  - 动态计划表: {getattr(game_state, 'npc_dynamic_schedules', {})}")
             
-            # 获取当前时间对象
-            current_time_obj = datetime.strptime(current_time, "%H:%M").time()
+            # 获取当前时间对象用于NPCService（保持字符串格式）
+            current_time_for_npc = current_time  # 直接使用字符串格式
             
             # 构建NPC状态信息
             npc_status = {}
@@ -148,9 +154,9 @@ class DebugController:
                 print(f"\n🔍 [DEBUG] 处理NPC: {npc_name}")
                 print(f"  - 原始数据: {actress}")
                 
-                # 使用NPCService获取当前位置和活动（包括动态计划表）
+                # 使用NPCService获取当前位置和活动（传递字符串格式的时间）
                 current_location, current_event = self.npc_service.get_npc_current_location_and_event(
-                    npc_name, current_time_obj, game_state
+                    npc_name, current_time_for_npc, game_state
                 )
                 
                 print(f"  ✅ 使用NPCService获取状态:")
@@ -201,25 +207,27 @@ class DebugController:
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=f"获取NPC状态信息失败: {str(e)}")
     
-    def get_messages(self, session_id: str = "default") -> List[Dict[str, str]]:
+    async def get_messages(self, session_id: str = "default", user_id: int = 1, story_id: int = 1) -> List[Dict[str, str]]:
         """
         获取消息历史
         
         Args:
             session_id: 会话ID
+            user_id: 用户ID
+            story_id: 故事ID
             
         Returns:
             消息历史
         """
         try:
-            game_state = self.state_service.get_game_state(session_id)
+            game_state = await self.state_service.get_game_state(session_id, user_id, story_id)
             return game_state.messages
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"获取消息历史失败: {str(e)}")
     
     def reset_session(self, session_id: str = "default") -> Dict[str, str]:
         """
-        重置会话
+        重置会话 - 缓存功能已移除
         
         Args:
             session_id: 会话ID
@@ -229,19 +237,21 @@ class DebugController:
         """
         try:
             self.state_service.clear_session(session_id)
-            return {"message": f"会话 {session_id} 已重置"}
+            return {"message": f"重置会话请求已处理 (缓存功能已移除，如需清除数据请操作数据库)"}
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"重置会话失败: {str(e)}")
     
     def get_all_sessions(self) -> Dict[str, Dict[str, Any]]:
         """
-        获取所有会话
+        获取所有会话 - 缓存功能已移除
         
         Returns:
-            所有会话信息
+            提示信息
         """
         try:
-            sessions = self.state_service.get_all_sessions()
-            return {session_id: game_state.to_dict() for session_id, game_state in sessions.items()}
+            return {
+                "message": "缓存功能已移除，无法获取所有会话状态",
+                "note": "系统现在完全依赖数据库存储，不再维护内存缓存"
+            }
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"获取所有会话失败: {str(e)}") 

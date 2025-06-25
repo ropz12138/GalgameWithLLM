@@ -44,8 +44,18 @@ class NPCService:
         
         return npc_locations
     
-    def get_npc_current_location_and_event(self, npc_name: str, current_time, game_state: GameStateModel = None) -> Tuple[str, str]:
+    def get_npc_current_location_and_event(self, npc_name: str, current_time: str, game_state: GameStateModel = None) -> Tuple[str, str]:
         """获取NPC当前位置和活动"""
+        # 确保current_time是字符串格式
+        if not isinstance(current_time, str):
+            print(f"⚠️ [NPCService] current_time参数类型错误: {type(current_time)}, 值: {current_time}")
+            # 如果是datetime.time对象，转换为字符串
+            if hasattr(current_time, 'strftime'):
+                current_time = current_time.strftime("%H:%M")
+            else:
+                current_time = str(current_time)
+            print(f"⚠️ [NPCService] 已转换为字符串: {current_time}")
+        
         # 查找NPC数据
         npc_obj = next((a for a in all_actresses if a['name'] == npc_name), None)
         if not npc_obj:
@@ -219,21 +229,88 @@ class NPCService:
         try:
             print(f"\n📅 [NPCService] 替换 {npc_name} 的完整计划表")
             
-            # 确保游戏状态有动态计划表字段
+            # 1. 更新内存中的动态计划表
             if not hasattr(game_state, 'npc_dynamic_schedules'):
                 game_state.npc_dynamic_schedules = {}
             
-            # 更新动态计划表
             game_state.npc_dynamic_schedules[npc_name] = new_complete_schedule
             
-            print(f"  ✅ 计划表已完全替换，新计划表:")
+            print(f"  ✅ 内存中的计划表已更新，新计划表:")
             for item in new_complete_schedule:
                 print(f"    {item['start_time']}-{item['end_time']} 在{item['location']}：{item['event']}")
             
-            return True
+            # 2. 持久化到数据库
+            success = self._persist_schedule_to_database(npc_name, new_complete_schedule, game_state)
+            
+            if success:
+                print(f"  ✅ 已将 {npc_name} 的计划表持久化到数据库")
+                return True
+            else:
+                print(f"  ❌ {npc_name} 的计划表持久化到数据库失败，但内存更新成功")
+                return True  # 内存更新成功，仍然返回True
             
         except Exception as e:
             print(f"❌ 替换NPC完整计划表失败: {e}")
+            return False
+    
+    def _persist_schedule_to_database(self, npc_name: str, new_schedule: List[Dict], game_state: GameStateModel) -> bool:
+        """
+        将计划表持久化到数据库
+        
+        Args:
+            npc_name: NPC名称
+            new_schedule: 新的计划表
+            game_state: 游戏状态
+            
+        Returns:
+            是否持久化成功
+        """
+        try:
+            from ..database.config import get_session
+            from ..database.models import NPC
+            
+            # 获取故事ID，优先从game_state获取，否则使用默认值1
+            story_id = getattr(game_state, 'story_id', None) or 1
+            
+            session = get_session()
+            try:
+                # 查找对应的NPC记录
+                npc_record = session.query(NPC).filter_by(
+                    story_id=story_id,
+                    name=npc_name
+                ).first()
+                
+                if not npc_record:
+                    print(f"❌ 数据库中未找到NPC: {npc_name} (故事ID: {story_id})")
+                    return False
+                
+                # 更新计划表
+                npc_record.schedule = new_schedule
+                
+                # 更新时间戳
+                from datetime import datetime
+                npc_record.updated_at = datetime.now()
+                
+                # 提交更改
+                session.commit()
+                
+                print(f"  📊 数据库更新成功 - NPC ID: {npc_record.id}, 故事ID: {story_id}")
+                print(f"  📋 已更新计划表项目数: {len(new_schedule)}")
+                return True
+                
+            except Exception as db_error:
+                session.rollback()
+                print(f"❌ 数据库操作失败: {db_error}")
+                import traceback
+                traceback.print_exc()
+                return False
+            finally:
+                session.close()
+                
+        except Exception as e:
+            print(f"❌ 持久化计划表到数据库失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def get_npc_current_schedule(self, npc_name: str, game_state: GameStateModel = None) -> List[Dict]:

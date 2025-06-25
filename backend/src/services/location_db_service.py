@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..database.config import get_session
-from ..database.models import Location, Story
+from ..database.models import Location, Story, Entity
 
 
 class LocationDBService:
@@ -54,6 +54,18 @@ class LocationDBService:
                 connections=connections or []
             )
             session.add(location)
+            session.flush()  # 获取location.id
+            
+            # 同时创建对应的位置实体记录
+            entity = Entity(
+                entity_type=2,  # location type
+                story_id=story_id,
+                name=name,
+                key_name=key,
+                description=f"游戏位置: {name}",
+                entity_metadata={}
+            )
+            session.add(entity)
             session.commit()
             
             return {
@@ -233,7 +245,18 @@ class LocationDBService:
                         connections=location_data.get('connections', [])
                     )
                     session.add(location)
-                    session.flush()
+                    session.flush()  # 获取location.id
+                    
+                    # 同时创建对应的位置实体记录
+                    entity = Entity(
+                        entity_type=2,  # location type
+                        story_id=story_id,
+                        name=location_data.get('name'),
+                        key_name=location_data.get('key'),
+                        description=f"游戏位置: {location_data.get('name')}",
+                        entity_metadata={}
+                    )
+                    session.add(entity)
                     updated_locations.append(location.to_dict())
             
             session.commit()

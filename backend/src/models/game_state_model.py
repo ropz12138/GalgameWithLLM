@@ -14,11 +14,12 @@ sys.path.append(SRC_DIR)
 class GameStateModel:
     """游戏状态模型类"""
     
-    def __init__(self, session_id: str = "default"):
+    def __init__(self, session_id: str = "default", story_id: int = None):
         from utils.config_loader import get_user_place, get_init_time
         from utils.time_utils import TimeUtils
         
         self.session_id = session_id
+        self.story_id = story_id  # 添加故事ID
         self.player_location = get_user_place()  # 从配置文件获取玩家初始位置
         self.player_personality = "普通"
         self.current_time = get_init_time()  # 从配置文件获取游戏初始时间
@@ -39,6 +40,7 @@ class GameStateModel:
         """转换为字典格式"""
         return {
             "session_id": self.session_id,
+            "story_id": self.story_id,  # 添加story_id到字典输出
             "player_location": self.player_location,
             "player_personality": self.player_personality,
             "current_time": self.current_time,
@@ -62,7 +64,7 @@ class GameStateModel:
         from utils.config_loader import get_user_place, get_init_time
         from utils.time_utils import TimeUtils
         
-        instance = cls(data.get("session_id", "default"))
+        instance = cls(data.get("session_id", "default"), data.get("story_id"))
         instance.player_location = data.get("player_location", get_user_place())
         instance.player_personality = data.get("player_personality", "普通")
         instance.current_time = data.get("current_time", get_init_time())

@@ -418,11 +418,26 @@ class DialogueService:
             # 验证JSON格式
             try:
                 import json
-                parsed = json.loads(response)
+                import re
+                
+                # 处理被```json代码块包装的情况
+                cleaned_response = response.strip()
+                if cleaned_response.startswith('```json'):
+                    # 提取JSON内容
+                    json_match = re.search(r'```json\s*(.*?)\s*```', cleaned_response, re.DOTALL)
+                    if json_match:
+                        cleaned_response = json_match.group(1).strip()
+                elif cleaned_response.startswith('```'):
+                    # 处理其他代码块格式
+                    json_match = re.search(r'```\s*(.*?)\s*```', cleaned_response, re.DOTALL)
+                    if json_match:
+                        cleaned_response = json_match.group(1).strip()
+                
+                parsed = json.loads(cleaned_response)
                 if isinstance(parsed, dict) and any(key in parsed for key in ['vision', 'hearing', 'smell', 'touch']):
-                    return response
+                    return cleaned_response
                 else:
-                    logger.warning(f"LLM返回的五感反馈格式不正确: {response}")
+                    logger.warning(f"LLM返回的五感反馈格式不正确: {cleaned_response}")
                     return None
             except json.JSONDecodeError:
                 logger.warning(f"LLM返回的五感反馈不是有效JSON: {response}")
