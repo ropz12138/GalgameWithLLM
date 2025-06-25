@@ -78,6 +78,46 @@ export function GamePage() {
   // 使用 useRef 来跟踪是否正在合并，避免重复合并
   const isMergingRef = useRef(false);
 
+  // 新增：侧边栏宽度控制
+  const [sidebarWidth, setSidebarWidth] = useState(280); // 默认280px，比原来的1/3更小
+  const [isResizing, setIsResizing] = useState(false);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+
+  // 侧边栏拖拽调整宽度的处理函数
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsResizing(true);
+    e.preventDefault();
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      
+      const newWidth = e.clientX;
+      // 限制侧边栏宽度在200px到600px之间
+      if (newWidth >= 200 && newWidth <= 600) {
+        setSidebarWidth(newWidth);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      document.body.classList.remove('resizing');
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.classList.add('resizing');
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.classList.remove('resizing');
+    };
+  }, [isResizing]);
+
   const handleLogout = () => {
     logout();
     navigate('/login');
@@ -375,7 +415,49 @@ export function GamePage() {
       console.log(`  💬 更新后对话历史长度: ${updatedGameState.dialogue_history.length}`);
       console.log(`  💬 对话历史内容:`, updatedGameState.dialogue_history);
       
-      setGameState(updatedGameState);
+      // 先更新游戏状态（不包括对话历史）
+      setGameState(prevState => ({
+        ...updatedGameState,
+        dialogue_history: prevState?.dialogue_history || [] // 暂时保持现有历史
+      }));
+
+      // 然后重新获取完整的消息历史
+      if (selectedStoryId) {
+        try {
+          const token = localStorage.getItem('token');
+          if (token) {
+            console.log('🔄 [前端] 重新获取完整消息历史...');
+            const messagesResponse = await GameApi.getStoryMessages({
+              storyId: selectedStoryId,
+              sessionId: undefined,
+              limit: 100,
+              offset: 0
+            }, token);
+            
+            // 转换消息为对话格式
+            const fullDialogueHistory: DialogueEntry[] = [];
+            messagesResponse.messages.forEach(message => {
+              const dialogues = convertGameMessageToDialogue(message);
+              fullDialogueHistory.push(...dialogues);
+            });
+            
+            // 更新完整的对话历史
+            setGameState(prevState => prevState ? {
+              ...prevState,
+              dialogue_history: fullDialogueHistory
+            } : null);
+            
+            console.log('✅ [前端] 完整消息历史更新成功:', fullDialogueHistory.length);
+          }
+        } catch (historyError) {
+          console.error('⚠️ [前端] 获取消息历史失败:', historyError);
+          // 历史获取失败不影响主流程，使用后端返回的新消息
+          setGameState(prevState => prevState ? {
+            ...prevState,
+            dialogue_history: [...(prevState.dialogue_history || []), ...(updatedGameState.dialogue_history || [])]
+          } : null);
+        }
+      }
 
     } catch (e) {
       console.error(`❌ [前端] 请求失败: ${currentAction}`, e);
@@ -450,15 +532,63 @@ export function GamePage() {
       console.log(`  💬 更新后对话历史长度: ${updatedGameState.dialogue_history.length}`);
       console.log(`  💬 对话历史内容:`, updatedGameState.dialogue_history);
       
-      setGameState(updatedGameState);
-      
-      // 更新模态窗口中的对话历史
-      const npcDialogueEntries = updatedGameState.dialogue_history.filter((entry: DialogueEntry) => 
-        entry.speaker === currentNpcDialogue.name || 
-        (entry.speaker === "玩家" && entry.message.includes(`对${currentNpcDialogue.name}说`)) ||
-        (entry.speaker === currentNpcDialogue.name && entry.message.includes("回复"))
-      );
-      setNpcDialogueHistory(npcDialogueEntries);
+      // 先更新游戏状态（不包括对话历史）
+      setGameState(prevState => ({
+        ...updatedGameState,
+        dialogue_history: prevState?.dialogue_history || [] // 暂时保持现有历史
+      }));
+
+      // 然后重新获取完整的消息历史
+      if (selectedStoryId) {
+        try {
+          const token = localStorage.getItem('token');
+          if (token) {
+            console.log('🔄 [前端] 重新获取完整消息历史...');
+            const messagesResponse = await GameApi.getStoryMessages({
+              storyId: selectedStoryId,
+              sessionId: undefined,
+              limit: 100,
+              offset: 0
+            }, token);
+            
+            // 转换消息为对话格式
+            const fullDialogueHistory: DialogueEntry[] = [];
+            messagesResponse.messages.forEach(message => {
+              const dialogues = convertGameMessageToDialogue(message);
+              fullDialogueHistory.push(...dialogues);
+            });
+            
+            // 更新完整的对话历史
+            setGameState(prevState => {
+              const newState = prevState ? {
+                ...prevState,
+                dialogue_history: fullDialogueHistory
+              } : null;
+              
+              // 同时更新模态窗口中的对话历史
+              if (newState && currentNpcDialogue) {
+                const npcDialogueEntries = fullDialogueHistory.filter((entry: DialogueEntry) => 
+                  entry.speaker === currentNpcDialogue.name || 
+                  (entry.speaker === "玩家" && entry.message.includes(`对${currentNpcDialogue.name}说`)) ||
+                  (entry.speaker === currentNpcDialogue.name && entry.message.includes("回复"))
+                );
+                setNpcDialogueHistory(npcDialogueEntries);
+              }
+              
+              return newState;
+            });
+            
+            console.log('✅ [前端] 完整消息历史更新成功:', fullDialogueHistory.length);
+          }
+        } catch (historyError) {
+          console.error('⚠️ [前端] 获取消息历史失败:', historyError);
+          // 历史获取失败不影响主流程，使用后端返回的新消息
+          setGameState(prevState => prevState ? {
+            ...prevState,
+            dialogue_history: [...(prevState.dialogue_history || []), ...(updatedGameState.dialogue_history || [])]
+          } : null);
+        }
+      }
 
     } catch (e) {
       console.error(`❌ [前端] NPC对话请求失败: ${dialogueMessage}`, e);
@@ -531,7 +661,11 @@ export function GamePage() {
             </div>
           ) : (
             <div className="text-sm text-green-600">
-              点击展开查看详细的五感反馈信息...
+              {sensoryData.vision ? (
+                <div><strong>👁️ 视觉:</strong> {sensoryData.vision}</div>
+              ) : (
+                <div>点击展开查看详细的五感反馈信息...</div>
+              )}
             </div>
           )}
         </div>
@@ -626,9 +760,9 @@ export function GamePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col">
+    <div className="h-screen bg-gray-100 flex flex-col">
       {/* 顶部导航栏 */}
-      <nav className="bg-white shadow-sm border-b px-6 py-4">
+      <nav className="bg-white shadow-sm border-b px-6 py-4 flex-shrink-0">
         <div className="flex justify-between items-center">
           <h1 className="text-2xl font-bold text-gray-800">🎮 LLM文字游戏</h1>
           <div className="flex items-center space-x-4">
@@ -661,157 +795,171 @@ export function GamePage() {
         </div>
       </nav>
 
-      {/* 游戏主体内容 */}
-      <div className="flex-1 flex">
-        {/* 左侧游戏状态面板 */}
-        <div className="w-1/3 bg-white border-r p-6">
-          <h2 className="text-xl font-semibold mb-4 text-gray-800">游戏状态</h2>
+      {/* 游戏主体内容 - 使用固定高度和flex布局 */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* 左侧游戏状态面板 - 固定高度，内容可滚动 */}
+        <div 
+          ref={sidebarRef}
+          className={`bg-white border-r flex-shrink-0 relative flex flex-col ${isResizing ? 'sidebar-resizing' : ''}`}
+          style={{ width: `${sidebarWidth}px` }}
+        >
+          {/* 侧边栏调整拖拽条 */}
+          <div
+            className="sidebar-resizer"
+            onMouseDown={handleMouseDown}
+            title="拖拽调整侧边栏宽度"
+          />
           
-          {/* 故事列表区域 */}
-          {showStoriesList && (
-            <div className="mb-6 border-b pb-4">
-              <div className="flex justify-between items-center mb-3">
-                <h3 className="font-medium text-gray-700">我的故事</h3>
-                <button
-                  onClick={fetchAllStories}
-                  disabled={storiesLoading}
-                  className="px-2 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600 disabled:bg-gray-400"
-                >
-                  {storiesLoading ? '刷新中...' : '刷新'}
-                </button>
-              </div>
-              
-              {storiesError && (
-                <div className="mb-3 p-2 bg-red-100 border border-red-400 text-red-700 rounded text-sm">
-                  ❌ {storiesError}
+          {/* 侧边栏内容 - 可滚动 */}
+          <div className="sidebar-content flex-1 overflow-y-auto p-6">
+            <h2 className="text-xl font-semibold mb-4 text-gray-800">游戏状态</h2>
+            
+            {/* 故事列表区域 */}
+            {showStoriesList && (
+              <div className="mb-6 border-b pb-4">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="font-medium text-gray-700">我的故事</h3>
+                  <button
+                    onClick={fetchAllStories}
+                    disabled={storiesLoading}
+                    className="px-2 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600 disabled:bg-gray-400"
+                  >
+                    {storiesLoading ? '刷新中...' : '刷新'}
+                  </button>
                 </div>
-              )}
-              
-              {storiesLoading ? (
-                <div className="text-center py-4">
-                  <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
-                  <p className="mt-1 text-sm text-gray-600">加载中...</p>
-                </div>
-              ) : (
-                <div className="space-y-2 max-h-60 overflow-y-auto">
-                  {allStories.length === 0 ? (
-                    <div className="text-center py-4 text-gray-500 text-sm">
-                      📚 暂无故事，点击"新建故事"开始创作
-                    </div>
-                  ) : (
-                    <>
-                      <div className="text-xs text-gray-500 mb-2">
-                        共 {allStories.length} 个故事
+                
+                {storiesError && (
+                  <div className="mb-3 p-2 bg-red-100 border border-red-400 text-red-700 rounded text-sm">
+                    ❌ {storiesError}
+                  </div>
+                )}
+                
+                {storiesLoading ? (
+                  <div className="text-center py-4">
+                    <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+                    <p className="mt-1 text-sm text-gray-600">加载中...</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {allStories.length === 0 ? (
+                      <div className="text-center py-4 text-gray-500 text-sm">
+                        📚 暂无故事，点击"新建故事"开始创作
                       </div>
-                      {allStories.map((story) => (
-                        <div key={story.id} className="border rounded p-2 bg-gray-50">
-                          <div className="flex justify-between items-start">
-                            <div className="flex-1 min-w-0">
-                              <h4 className="font-medium text-sm text-gray-800 truncate">{story.name}</h4>
-                              <p className="text-xs text-gray-600 mt-1 line-clamp-2">{story.description || '暂无描述'}</p>
-                              <div className="flex items-center space-x-2 mt-1 text-xs text-gray-500">
-                                <span>👤 {story.creator_username || 'Unknown'}</span>
-                                <span>🆔 {story.id}</span>
+                    ) : (
+                      <>
+                        <div className="text-xs text-gray-500 mb-2">
+                          共 {allStories.length} 个故事
+                        </div>
+                        {allStories.map((story) => (
+                          <div key={story.id} className="border rounded p-2 bg-gray-50">
+                            <div className="flex justify-between items-start">
+                              <div className="flex-1 min-w-0">
+                                <h4 className="font-medium text-sm text-gray-800 truncate">{story.name}</h4>
+                                <p className="text-xs text-gray-600 mt-1 line-clamp-2">{story.description || '暂无描述'}</p>
+                                <div className="flex items-center space-x-2 mt-1 text-xs text-gray-500">
+                                  <span>👤 {story.creator_username || 'Unknown'}</span>
+                                  <span>🆔 {story.id}</span>
+                                </div>
                               </div>
+                              <button
+                                onClick={() => handleStoryButtonClick(story)}
+                                className="ml-2 px-2 py-1 bg-purple-500 text-white rounded text-xs hover:bg-purple-600 flex-shrink-0"
+                              >
+                                选择
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* 游戏信息区域 */}
+            {gameState ? (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="font-medium text-gray-700">当前位置</h3>
+                  <p className="text-gray-600">{locationKeyToName[gameState.player_location] || gameState.player_location}</p>
+                </div>
+                
+                <div>
+                  <h3 className="font-medium text-gray-700">当前时间</h3>
+                  <p className="text-gray-600">{gameState.current_time}</p>
+                </div>
+                
+                <div>
+                  <h3 className="font-medium text-gray-700">位置描述</h3>
+                  <p className="text-gray-600 text-sm">{gameState.location_description}</p>
+                </div>
+                
+                <div>
+                  <h3 className="font-medium text-gray-700">可前往的位置</h3>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {gameState.connected_locations.map((location, index) => (
+                      <span key={index} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm">
+                        {locationKeyToName[location] || location}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                
+                <div>
+                  <h3 className="font-medium text-gray-700">当前位置的角色</h3>
+                  <div className="space-y-2 mt-2">
+                    {gameState.npcs_at_current_location.length > 0 ? (
+                      gameState.npcs_at_current_location.map((npc, index) => (
+                        <div key={index} className="border rounded p-3 bg-gray-50">
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <h4 className="font-medium">{npc.name}</h4>
+                              <p className="text-sm text-gray-600 mt-1">{npc.event}</p>
+                              <p className="text-xs text-gray-500 mt-1">{npc.personality}</p>
                             </div>
                             <button
-                              onClick={() => handleStoryButtonClick(story)}
-                              className="ml-2 px-2 py-1 bg-purple-500 text-white rounded text-xs hover:bg-purple-600 flex-shrink-0"
+                              onClick={() => handleNpcButtonClick(npc)}
+                              className="ml-2 px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600"
                             >
-                              选择
+                              对话
                             </button>
                           </div>
                         </div>
-                      ))}
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-          
-          {/* 游戏信息区域 */}
-          {gameState ? (
-            <div className="space-y-4">
-              <div>
-                <h3 className="font-medium text-gray-700">当前位置</h3>
-                <p className="text-gray-600">{locationKeyToName[gameState.player_location] || gameState.player_location}</p>
-              </div>
-              
-              <div>
-                <h3 className="font-medium text-gray-700">当前时间</h3>
-                <p className="text-gray-600">{gameState.current_time}</p>
-              </div>
-              
-              <div>
-                <h3 className="font-medium text-gray-700">位置描述</h3>
-                <p className="text-gray-600 text-sm">{gameState.location_description}</p>
-              </div>
-              
-              <div>
-                <h3 className="font-medium text-gray-700">可前往的位置</h3>
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {gameState.connected_locations.map((location, index) => (
-                    <span key={index} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm">
-                      {locationKeyToName[location] || location}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              
-              <div>
-                <h3 className="font-medium text-gray-700">当前位置的角色</h3>
-                <div className="space-y-2 mt-2">
-                  {gameState.npcs_at_current_location.length > 0 ? (
-                    gameState.npcs_at_current_location.map((npc, index) => (
-                      <div key={index} className="border rounded p-3 bg-gray-50">
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <h4 className="font-medium">{npc.name}</h4>
-                            <p className="text-sm text-gray-600 mt-1">{npc.event}</p>
-                            <p className="text-xs text-gray-500 mt-1">{npc.personality}</p>
-                          </div>
-                          <button
-                            onClick={() => handleNpcButtonClick(npc)}
-                            className="ml-2 px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600"
-                          >
-                            对话
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-gray-500 text-sm">当前位置没有其他角色</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-4 text-center py-8">
-              <div className="text-6xl">🎮</div>
-              <div>
-                <h3 className="text-lg font-medium text-gray-700 mb-2">欢迎来到文字冒险游戏！</h3>
-                <p className="text-gray-600 text-sm mb-4">请从左侧故事列表中选择一个故事开始游戏</p>
-                <div className="space-y-2 text-xs text-gray-500">
-                  <div className="flex items-center justify-center space-x-2">
-                    <span>📚</span>
-                    <span>选择现有故事继续冒险</span>
-                  </div>
-                  <div className="flex items-center justify-center space-x-2">
-                    <span>✨</span>
-                    <span>或创建新故事开始全新的旅程</span>
+                      ))
+                    ) : (
+                      <p className="text-gray-500 text-sm">当前位置没有其他角色</p>
+                    )}
                   </div>
                 </div>
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="space-y-4 text-center py-8">
+                <div className="text-6xl">🎮</div>
+                <div>
+                  <h3 className="text-lg font-medium text-gray-700 mb-2">欢迎来到文字冒险游戏！</h3>
+                  <p className="text-gray-600 text-sm mb-4">请从左侧故事列表中选择一个故事开始游戏</p>
+                  <div className="space-y-2 text-xs text-gray-500">
+                    <div className="flex items-center justify-center space-x-2">
+                      <span>📚</span>
+                      <span>选择现有故事继续冒险</span>
+                    </div>
+                    <div className="flex items-center justify-center space-x-2">
+                      <span>✨</span>
+                      <span>或创建新故事开始全新的旅程</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* 右侧对话和输入区域 */}
+        {/* 右侧对话和输入区域 - 固定高度，聊天记录独立滚动 */}
         <div className="flex-1 flex flex-col bg-white">
-          {/* 对话历史区域 */}
-          <div className="flex-1 overflow-y-auto p-6">
-            <div className="flex justify-between items-center mb-4">
+          {/* 标题栏 - 固定 */}
+          <div className="flex-shrink-0 p-6 pb-4 border-b">
+            <div className="flex justify-between items-center">
               <h2 className="text-xl font-semibold text-gray-800">游戏记录</h2>
               {selectedStoryId && (
                 <div className="text-sm text-blue-600">
@@ -827,11 +975,14 @@ export function GamePage() {
             </div>
             
             {messagesError && (
-              <div className="mb-3 p-2 bg-red-100 border border-red-400 text-red-700 rounded text-sm">
+              <div className="mt-3 p-2 bg-red-100 border border-red-400 text-red-700 rounded text-sm">
                 ❌ {messagesError}
               </div>
             )}
-            
+          </div>
+
+          {/* 对话历史区域 - 独立滚动 */}
+          <div className="flex-1 overflow-y-auto p-6 pt-4">
             <div className="space-y-3">
               {gameState && gameState.dialogue_history.length > 0 ? (
                 gameState.dialogue_history.map((entry, index) => renderDialogueEntry(entry, index))
@@ -848,8 +999,8 @@ export function GamePage() {
             </div>
           </div>
 
-          {/* 输入区域 */}
-          <div className="border-t p-6">
+          {/* 输入区域 - 固定在底部 */}
+          <div className="flex-shrink-0 border-t p-6">
             <form onSubmit={handleUserInputSubmit} className="flex space-x-2">
               <input
                 type="text"

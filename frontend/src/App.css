@@ -815,3 +815,56 @@ code {
   box-shadow: none;
 }
 
+/* 侧边栏调整相关样式 */
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 4px;
+  height: 100%;
+  cursor: ew-resize;
+  background-color: #e5e7eb;
+  transition: background-color 0.2s ease;
+  z-index: 10;
+}
+
+.sidebar-resizer:hover {
+  background-color: #3b82f6;
+}
+
+.sidebar-resizing {
+  user-select: none;
+}
+
+.sidebar-resizing .sidebar-resizer {
+  background-color: #3b82f6;
+}
+
+/* 改善拖拽时的视觉反馈 */
+body.resizing {
+  cursor: ew-resize !important;
+  user-select: none !important;
+}
+
+/* 侧边栏内容的响应式调整 */
+.sidebar-content {
+  width: 100%;
+  overflow-x: hidden;
+  padding-right: 8px; /* 为拖拽条留出空间 */
+}
+
+/* 当侧边栏很窄时的样式调整 */
+@media (max-width: 300px) {
+  .sidebar-content h2 {
+    font-size: 1.2rem;
+  }
+  
+  .sidebar-content h3 {
+    font-size: 1rem;
+  }
+  
+  .sidebar-content .text-sm {
+    font-size: 0.75rem;
+  }
+}
+
