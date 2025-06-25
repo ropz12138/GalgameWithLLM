@@ -7,18 +7,25 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import time
+import logging
 
 # 添加路径
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 sys.path.append(PROJECT_ROOT)
 
+# 初始化日志系统
+from .utils.logger_config import setup_logger
+logger = setup_logger()
+
 from .routers.game_router import game_router
 from .routers.debug_router import debug_router
 from .routers.llm_router import llm_router
 from .routers.story_router import story_router
 from .controllers.auth_controller import router as auth_router
-# from utils.logger_utils import LoggerUtils
+from .routers.story_db_router import router as story_db_router
+from .routers.location_db_router import router as location_db_router
+from .routers.npc_db_router import router as npc_db_router
 
 # 数据库初始化
 from .database.init_db import init_database
@@ -31,6 +38,8 @@ def create_app() -> FastAPI:
     Returns:
         FastAPI应用实例
     """
+    logger.info("🚀 开始创建FastAPI应用")
+    
     app = FastAPI(
         title="LLM文字游戏 (MVC架构版本)",
         description="基于新架构的LLM驱动文字游戏，采用MVC三层架构",
@@ -43,50 +52,51 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     async def startup_event():
         """应用启动时的初始化任务"""
-        print("\n🚀 应用启动事件开始...")
+        logger.info("🚀 应用启动事件开始...")
         
         # 初始化数据库
-        print("📊 初始化数据库...")
+        logger.info("📊 初始化数据库...")
         try:
             success = init_database(drop_existing=False)
             if success:
-                print("✅ 数据库初始化成功")
-                
-                # 运行数据迁移
-                print("🔄 运行数据迁移...")
-                try:
-                    from .database.migrations import run_migrations
-                    story_id = run_migrations()
-                    if story_id:
-                        print(f"✅ 数据迁移成功，默认故事ID: {story_id}")
-                    else:
-                        print("⚠️ 数据迁移失败，但应用将继续运行")
-                except Exception as migration_error:
-                    print(f"❌ 数据迁移异常: {migration_error}")
-                    print("⚠️ 应用将继续运行")
+                logger.info("✅ 数据库初始化成功")
             else:
-                print("❌ 数据库初始化失败，但应用将继续运行")
+                logger.error("❌ 数据库初始化失败，但应用将继续运行")
         except Exception as e:
-            print(f"❌ 数据库初始化异常: {e}")
-            print("⚠️ 应用将在没有数据库的情况下运行")
+            logger.error(f"❌ 数据库初始化异常: {e}")
+            logger.warning("⚠️ 应用将在没有数据库的情况下运行")
         
-        # 创建管理员用户
-        print("👤 创建管理员用户...")
+        # 创建管理员用户（必须在数据迁移之前）
+        logger.info("👤 创建管理员用户...")
         try:
             from .services.auth_service import auth_service
             auth_service.create_admin_user()
+            logger.info("✅ 管理员用户创建成功")
         except Exception as e:
-            print(f"❌ 创建管理员用户失败: {e}")
+            logger.error(f"❌ 创建管理员用户失败: {e}")
         
-        print("✅ 应用启动事件完成\n")
+        # 运行数据迁移（需要管理员用户存在）
+        logger.info("🔄 运行数据迁移...")
+        try:
+            from .database.migrations import run_migrations
+            story_id = run_migrations()
+            if story_id:
+                logger.info(f"✅ 数据迁移成功，默认故事ID: {story_id}")
+            else:
+                logger.warning("⚠️ 数据迁移失败，但应用将继续运行")
+        except Exception as migration_error:
+            logger.error(f"❌ 数据迁移异常: {migration_error}")
+            logger.warning("⚠️ 应用将继续运行")
+        
+        logger.info("✅ 应用启动事件完成")
     
     # 应用关闭事件
     @app.on_event("shutdown")
     async def shutdown_event():
         """应用关闭时的清理任务"""
-        print("\n👋 应用正在关闭...")
+        logger.info("👋 应用正在关闭...")
         # 这里可以添加数据库连接池关闭等清理操作
-        print("✅ 应用关闭事件完成")
+        logger.info("✅ 应用关闭事件完成")
     
     # CORS配置
     app.add_middleware(
@@ -97,32 +107,29 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     
-    # 请求日志中间件（暂时注释掉）
-    # @app.middleware("http")
-    # async def log_requests(request: Request, call_next):
-    #     start_time = time.time()
-    #     
-    #     # 处理请求
-    #     response = await call_next(request)
-    #     
-    #     # 计算耗时
-    #     duration = time.time() - start_time
-    #     
-    #     # 记录请求日志
-    #     LoggerUtils.log_api_request(
-    #         method=request.method,
-    #         path=request.url.path,
-    #         status_code=response.status_code,
-    #         duration=duration
-    #     )
-    #     
-    #     return response
+    # 请求日志中间件
+    @app.middleware("http")
+    async def log_requests(request: Request, call_next):
+        start_time = time.time()
+        
+        # 记录请求开始
+        logger.info(f"📨 [HTTP] {request.method} {request.url.path} - 开始处理")
+        
+        # 处理请求
+        response = await call_next(request)
+        
+        # 计算耗时
+        duration = time.time() - start_time
+        
+        # 记录请求完成
+        logger.info(f"📨 [HTTP] {request.method} {request.url.path} - 状态码: {response.status_code}, 耗时: {duration:.3f}s")
+        
+        return response
     
     # 异常处理
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
-        # 记录错误日志（暂时注释掉）
-        # LoggerUtils.log_error(exc, f"全局异常处理 - {request.method} {request.url.path}")
+        logger.error(f"❌ [GlobalException] {request.method} {request.url.path} - 异常: {str(exc)}", exc_info=True)
         
         return JSONResponse(
             status_code=500,
@@ -135,11 +142,19 @@ def create_app() -> FastAPI:
         )
     
     # 注册路由
+    logger.info("🔗 注册路由...")
     app.include_router(auth_router, prefix="/api/auth", tags=["认证"])
     app.include_router(game_router)
     app.include_router(debug_router)
     app.include_router(llm_router)
     app.include_router(story_router)
+    
+    # 数据库相关路由
+    app.include_router(story_db_router)
+    app.include_router(location_db_router)
+    app.include_router(npc_db_router)
+    
+    logger.info("✅ 路由注册完成")
     
     # 根端点
     @app.get("/")

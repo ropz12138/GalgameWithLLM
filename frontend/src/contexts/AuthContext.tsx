@@ -1,13 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-
-interface User {
-  id: number;
-  username: string;
-  email?: string;
-  phone?: string;
-  is_active: boolean;
-  created_at: string;
-}
+import { AuthApi, User } from '../api/auth';
+import { ApiError } from '../api/index';
 
 interface AuthContextType {
   user: User | null;
@@ -20,8 +13,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001/api';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -46,20 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(true);
       setError(null);
 
-      const response = await fetch(`${API_BASE_URL}/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ username, password }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || '登录失败');
-      }
-
-      const data = await response.json();
+      const data = await AuthApi.login({ username, password });
       
       // 保存用户信息和token
       setUser(data.user);
@@ -71,7 +49,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : '登录失败');
+      const errorMessage = err instanceof ApiError ? err.message : '登录失败';
+      setError(errorMessage);
       return false;
     } finally {
       setIsLoading(false);
@@ -83,23 +62,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(true);
       setError(null);
 
-      const response = await fetch(`${API_BASE_URL}/auth/register`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ username, password, email }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || '注册失败');
-      }
+      await AuthApi.register({ username, password, email });
 
       // 注册成功后自动登录
       return await login(username, password);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '注册失败');
+      const errorMessage = err instanceof ApiError ? err.message : '注册失败';
+      setError(errorMessage);
       return false;
     } finally {
       setIsLoading(false);

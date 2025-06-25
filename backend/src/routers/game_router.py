@@ -2,10 +2,11 @@
 游戏路由 - 定义游戏相关的API端点
 """
 from typing import List, Dict
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from pydantic import BaseModel, Field
 
 from ..controllers.game_controller import GameController
+from ..services.auth_service import auth_service
 
 # 创建路由器
 game_router = APIRouter(prefix="/api", tags=["游戏"])
@@ -18,6 +19,7 @@ game_controller = GameController()
 class ActionRequest(BaseModel):
     action: str = Field(description="玩家行动")
     session_id: str = Field(default="default", description="会话ID")
+    story_id: int = Field(default=None, description="故事ID")
 
 
 class DialogueRequest(BaseModel):
@@ -37,17 +39,21 @@ async def root():
 
 
 @game_router.get("/game_state")
-async def get_current_game_state(session_id: str = Query(default="default", description="会话ID")):
+async def get_current_game_state(
+    session_id: str = Query(default="default", description="会话ID"),
+    story_id: int = Query(default=None, description="故事ID")
+):
     """
     获取当前游戏状态
     
     Args:
         session_id: 会话ID
+        story_id: 故事ID（可选，用于从数据库恢复状态）
         
     Returns:
         游戏状态
     """
-    return await game_controller.get_game_state(session_id)
+    return await game_controller.get_game_state(session_id, story_id)
 
 
 @game_router.post("/process_action")
@@ -61,7 +67,7 @@ async def process_player_action(request: ActionRequest):
     Returns:
         处理结果
     """
-    return await game_controller.process_action(request.action, request.session_id)
+    return await game_controller.process_action(request.action, request.session_id, request.story_id)
 
 
 @game_router.post("/stream_action")
@@ -127,4 +133,40 @@ async def continue_dialogue_with_npc(
     Returns:
         对话结果
     """
-    return await game_controller.continue_dialogue(npc_name, request.message, session_id) 
+    return await game_controller.continue_dialogue(npc_name, request.message, session_id)
+
+
+@game_router.get("/stories/{story_id}/messages")
+async def get_story_messages(
+    story_id: int,
+    session_id: str = Query(default=None, description="会话ID（可选）"),
+    limit: int = Query(default=100, description="限制返回数量"),
+    offset: int = Query(default=0, description="偏移量"),
+    current_user: Dict = Depends(auth_service.get_current_user)
+):
+    """
+    获取故事的消息历史
+    
+    Args:
+        story_id: 故事ID
+        session_id: 会话ID（可选，为None时获取所有会话）
+        limit: 限制返回数量
+        offset: 偏移量
+        current_user: 当前用户信息
+        
+    Returns:
+        消息历史数据
+    """
+    result = await game_controller.get_story_messages(
+        user_id=current_user["id"],
+        story_id=story_id,
+        session_id=session_id,
+        limit=limit,
+        offset=offset
+    )
+    
+    if not result["success"]:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=result["error"])
+    
+    return result["data"] 

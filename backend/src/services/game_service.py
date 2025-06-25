@@ -25,12 +25,14 @@ from .location_service import LocationService
 from .npc_service import NPCService
 from .llm_service import LLMService
 from ..prompts.prompt_templates import PromptTemplates
+from .message_service import message_service
 
 
 class GameService:
     """游戏服务类"""
     
     def __init__(self):
+        """初始化游戏服务"""
         self.state_service = StateService()
         self.action_router_service = ActionRouterService()
         self.dialogue_service = DialogueService()
@@ -38,14 +40,16 @@ class GameService:
         self.location_service = LocationService()
         self.npc_service = NPCService()
         self.llm_service = LLMService()
+        self.message_service = message_service
     
-    async def process_action(self, action: str, session_id: str = "default") -> Dict[str, Any]:
+    async def process_action(self, action: str, session_id: str = "default", story_id: int = None) -> Dict[str, Any]:
         """
         处理玩家行动
         
         Args:
-            action: 玩家行动
+            action: 玩家行动描述
             session_id: 会话ID
+            story_id: 故事ID
             
         Returns:
             处理结果
@@ -55,16 +59,35 @@ class GameService:
             print(f"  📝 行动内容: '{action}'")
             print(f"  🆔 会话ID: {session_id}")
             
-            # 获取当前游戏状态
-            game_state = self.state_service.get_game_state(session_id)
+            # 获取用户和故事信息
+            user_id, story_id = self._get_user_and_story_info(session_id, story_id)
+            
+            # 获取当前游戏状态（现在支持从数据库恢复）
+            game_state = await self.state_service.get_game_state(session_id, user_id, story_id)
             print(f"  📊 当前状态:")
             print(f"    📍 位置: {game_state.player_location}")
             print(f"    ⏰ 时间: {game_state.current_time}")
             print(f"    💬 消息数量: {len(game_state.messages)}")
             
-            # 首先记录玩家的输入消息
+            # 首先记录玩家的输入消息到内存
             game_state.add_message("玩家", action, "player_action")
-            print(f"  📝 已记录玩家输入: {action}")
+            print(f"  📝 已记录玩家输入到内存: {action}")
+            
+            # 持久化用户输入到数据库
+            try:
+                game_time = datetime.fromisoformat(game_state.current_time.replace('Z', '+00:00')) if isinstance(game_state.current_time, str) else game_state.current_time
+                
+                await self.message_service.save_user_input(
+                    user_id=user_id,
+                    story_id=story_id,
+                    session_id=session_id,
+                    content=action,
+                    location=game_state.player_location,
+                    game_time=game_time
+                )
+            except Exception as e:
+                print(f"⚠️ [GameService] 用户输入持久化失败: {e}")
+                # 持久化失败不影响游戏流程
             
             # 使用行动路由服务分析行动
             route_result = await self.action_router_service.route_action(action, game_state)
@@ -89,21 +112,47 @@ class GameService:
             print(f"  📤 处理结果: {result}")
             
             if result["success"]:
+                # 持久化处理结果
+                await self._save_action_result(action_type, result, game_state, session_id, user_id, story_id)
+                
                 # 更新游戏状态
                 await self._update_game_state(result, game_state, session_id)
                 
-                # 返回格式化响应
-                updated_game_state = self.state_service.get_game_state(session_id)
-                return self._format_game_response(updated_game_state)
+                # 返回格式化响应，只包含新消息
+                updated_game_state = await self.state_service.get_game_state(session_id, user_id, story_id)
+                new_messages = result.get("messages", [])
+                return self._format_game_response(updated_game_state, new_messages=new_messages)
             else:
-                # 处理失败，返回错误信息
+                # 处理失败，保存错误消息
+                try:
+                    game_time = datetime.fromisoformat(game_state.current_time.replace('Z', '+00:00')) if isinstance(game_state.current_time, str) else game_state.current_time
+                    
+                    await self.message_service.save_error_message(
+                        user_id=user_id,
+                        story_id=story_id,
+                        session_id=session_id,
+                        error=result.get("error", "未知错误"),
+                        location=game_state.player_location,
+                        game_time=game_time
+                    )
+                except Exception as e:
+                    print(f"⚠️ [GameService] 错误消息持久化失败: {e}")
+                
+                # 返回错误信息
                 return self._format_game_response(game_state, error=result.get("error"))
                 
         except Exception as e:
             print(f"❌ [GameService] 处理行动错误: {e}")
             import traceback
             traceback.print_exc()
-            game_state = self.state_service.get_game_state(session_id)
+            
+            # 尝试获取用户信息，如果失败则使用默认值
+            try:
+                user_id, story_id = self._get_user_and_story_info(session_id, story_id)
+                game_state = await self.state_service.get_game_state(session_id, user_id, story_id)
+            except:
+                game_state = await self.state_service.get_game_state(session_id)
+                
             return self._format_game_response(game_state, error=str(e))
     
     async def _process_exploration(self, action: str, game_state: GameStateModel) -> Dict[str, Any]:
@@ -306,7 +355,7 @@ class GameService:
             print(f"  💬 添加消息: {len(result['messages'])} 条")
         
         # 保存状态
-        self.state_service.save_game_state(session_id, game_state)
+        self.state_service.save_game_state(session_id, game_state, story_id)
         print(f"  💾 状态已保存")
     
     async def _calculate_exploration_time(self, action: str, personality: str) -> int:
@@ -410,18 +459,30 @@ class GameService:
         except Exception as e:
             yield f"data: {self._create_error_response(str(e))}\n\n"
     
-    def get_game_state(self, session_id: str = "default") -> Dict[str, Any]:
+    async def get_game_state(self, session_id: str = "default", story_id: int = None) -> Dict[str, Any]:
         """
         获取游戏状态
         
         Args:
             session_id: 会话ID
+            story_id: 故事ID
             
         Returns:
-            游戏状态
+            游戏状态响应
         """
-        game_state = self.state_service.get_game_state(session_id)
-        return self._format_game_response(game_state)
+        try:
+            # 获取用户和故事信息
+            user_id, story_id = self._get_user_and_story_info(session_id, story_id)
+            
+            # 获取游戏状态（支持从数据库恢复）
+            game_state = await self.state_service.get_game_state(session_id, user_id, story_id)
+            return self._format_game_response(game_state)
+            
+        except Exception as e:
+            print(f"❌ [GameService] 获取游戏状态失败: {e}")
+            # 降级到默认状态
+            game_state = await self.state_service.get_game_state(session_id)
+            return self._format_game_response(game_state, error=str(e))
     
     def initialize_game(self, session_id: str = "default") -> Dict[str, Any]:
         """
@@ -468,13 +529,14 @@ class GameService:
         action = f"和{npc_name}说：{message}"
         return self.process_action(action, session_id)
 
-    def _format_game_response(self, game_state: GameStateModel, error: Optional[str] = None) -> Dict[str, Any]:
+    def _format_game_response(self, game_state: GameStateModel, error: Optional[str] = None, new_messages: List[Dict] = None) -> Dict[str, Any]:
         """
         格式化游戏响应
         
         Args:
             game_state: 游戏状态
             error: 错误信息
+            new_messages: 当前操作产生的新消息（避免重复显示历史消息）
             
         Returns:
             格式化的响应
@@ -499,7 +561,8 @@ class GameService:
                     for loc_key in location_details.get("connections", [])
                 ],
                 "npcs_at_current_location": location_details.get("npcs_present", []),
-                "dialogue_history": self._convert_messages_to_dialogue_history(game_state.messages)
+                # 只返回新消息，不返回完整历史（避免重复）
+                "dialogue_history": self._convert_messages_to_dialogue_history(new_messages or [])
             }
             
             # 确保NPC信息包含必要字段
@@ -565,7 +628,7 @@ class GameService:
         speaker = msg.get("speaker", "")
         
         # 保留对话、系统重要消息等
-        important_types = ["dialogue", "movement", "exploration", "error"]
+        important_types = ["dialogue", "movement", "exploration", "error", "sensory_feedback"]
         important_speakers = ["系统"]
         
         return (
@@ -585,4 +648,143 @@ class GameService:
             错误响应JSON字符串
         """
         import json
-        return json.dumps({"error": error}, ensure_ascii=False) 
+        return json.dumps({"error": error}, ensure_ascii=False)
+
+    def _get_user_and_story_info(self, session_id: str, story_id: int = None) -> tuple:
+        """获取用户ID和故事ID"""
+        # TODO: 从JWT token或会话中获取真实的user_id
+        # 目前使用硬编码值作为示例
+        user_id = 1  # admin用户
+        
+        # 使用传入的story_id，如果没有传入则使用默认值
+        if story_id is None:
+            story_id = 1  # 默认故事
+            print(f"⚠️ [GameService] 未传入故事ID，使用默认值: {story_id}")
+        
+        print(f"🔍 [GameService] 获取会话信息: 用户ID={user_id}, 故事ID={story_id}, 会话ID={session_id}")
+        return user_id, story_id
+
+    async def _save_action_result(self, action_type: str, result: Dict[str, Any], game_state: GameStateModel, session_id: str, user_id: int, story_id: int):
+        """保存行动处理结果到数据库"""
+        try:
+            # 使用result中的更新后时间，如果没有则使用当前游戏状态时间
+            result_time = result.get("current_time", game_state.current_time)
+            game_time = datetime.fromisoformat(result_time.replace('Z', '+00:00')) if isinstance(result_time, str) else result_time
+            
+            # 获取结果中的消息列表
+            messages = result.get("messages", [])
+            
+            for msg in messages:
+                speaker = msg.get("speaker", "系统")
+                content = msg.get("message", "")
+                msg_type = msg.get("type", "general")
+                
+                # 使用消息中的时间戳（如果有的话），否则使用计算出的game_time
+                msg_timestamp = msg.get("timestamp")
+                if msg_timestamp:
+                    try:
+                        # 尝试解析消息时间戳
+                        if isinstance(msg_timestamp, str):
+                            if len(msg_timestamp) <= 5:  # 只有时间部分如"07:03"
+                                # 将时间部分与结果时间的日期部分组合
+                                from ..utils.time_utils import TimeUtils
+                                result_dt = TimeUtils.parse_game_time(result_time)
+                                time_only = datetime.strptime(msg_timestamp, "%H:%M").time()
+                                msg_game_time = datetime.combine(result_dt.date(), time_only)
+                            else:
+                                msg_game_time = datetime.fromisoformat(msg_timestamp.replace('Z', '+00:00'))
+                        else:
+                            msg_game_time = msg_timestamp
+                    except:
+                        msg_game_time = game_time
+                else:
+                    msg_game_time = game_time
+                
+                # 根据行动类型和消息类型决定持久化策略
+                if action_type == "talk" and speaker != "系统" and speaker != "玩家":
+                    # NPC对话
+                    await self.message_service.save_npc_dialogue(
+                        user_id=user_id,
+                        story_id=story_id,
+                        session_id=session_id,
+                        npc_name=speaker,
+                        dialogue=content,
+                        location=game_state.player_location,
+                        game_time=msg_game_time,
+                        metadata={"action_type": action_type, "original_action": result.get("original_action", "")}
+                    )
+                elif action_type == "talk" and msg_type == "sensory_feedback":
+                    # 对话场景的五感反馈
+                    await self.message_service.save_sensory_feedback(
+                        user_id=user_id,
+                        story_id=story_id,
+                        session_id=session_id,
+                        feedback=content,
+                        location=game_state.player_location,
+                        game_time=msg_game_time,
+                        structured_data={"action_type": action_type, "dialogue_type": "sensory"}
+                    )
+                elif action_type == "move":
+                    # 移动行动
+                    await self.message_service.save_system_action(
+                        user_id=user_id,
+                        story_id=story_id,
+                        session_id=session_id,
+                        action_result=content,
+                        location=game_state.player_location,
+                        game_time=msg_game_time,
+                        sub_type="movement",
+                        metadata={"action_type": action_type, "new_location": result.get("player_location")}
+                    )
+                    
+                    # 如果有五感反馈，也要保存
+                    if "sensory_feedback" in result:
+                        sensory_data = result["sensory_feedback"]
+                        await self.message_service.save_sensory_feedback(
+                            user_id=user_id,
+                            story_id=story_id,
+                            session_id=session_id,
+                            feedback=sensory_data.get("description", ""),
+                            location=game_state.player_location,
+                            game_time=msg_game_time,
+                            structured_data=sensory_data
+                        )
+                elif action_type == "explore":
+                    # 探索行动 - 主要是五感反馈
+                    if msg_type == "exploration":
+                        await self.message_service.save_sensory_feedback(
+                            user_id=user_id,
+                            story_id=story_id,
+                            session_id=session_id,
+                            feedback=content,
+                            location=game_state.player_location,
+                            game_time=msg_game_time,
+                            structured_data={"action_type": action_type, "exploration_type": "sensory"}
+                        )
+                    else:
+                        await self.message_service.save_system_info(
+                            user_id=user_id,
+                            story_id=story_id,
+                            session_id=session_id,
+                            info=content,
+                            location=game_state.player_location,
+                            game_time=msg_game_time,
+                            sub_type="exploration"
+                        )
+                else:
+                    # 一般行动或其他类型
+                    await self.message_service.save_system_info(
+                        user_id=user_id,
+                        story_id=story_id,
+                        session_id=session_id,
+                        info=content,
+                        location=game_state.player_location,
+                        game_time=msg_game_time,
+                        sub_type=action_type
+                    )
+            
+            print(f"✅ [GameService] 行动结果持久化完成: {action_type}, 消息数={len(messages)}")
+            
+        except Exception as e:
+            print(f"⚠️ [GameService] 行动结果持久化失败: {e}")
+            # 持久化失败不影响游戏流程 

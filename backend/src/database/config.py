@@ -51,12 +51,20 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 def get_db():
-    """获取数据库会话"""
+    """获取数据库会话（用于FastAPI依赖注入）"""
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+def get_session():
+    """获取数据库会话（用于服务层直接调用）"""
+    return SessionLocal()
+
+def get_engine():
+    """获取数据库引擎"""
+    return engine
 
 def test_connection():
     """测试数据库连接"""

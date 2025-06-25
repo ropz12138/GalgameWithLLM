@@ -20,7 +20,7 @@ alembic==1.13.1
 
 # 认证和安全
 passlib==1.7.4
-bcrypt==4.1.2
+bcrypt==4.2.0
 python-jose[cryptography]==3.3.0
 
 # 环境配置

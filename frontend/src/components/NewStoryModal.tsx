@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { StoryApi, CreateCompleteStoryRequest } from '../api/story';
+import { useAuth } from '../contexts/AuthContext';
 
 interface NPC {
   name: string;
@@ -32,16 +34,23 @@ interface StoryInfo {
 interface NewStoryModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onStoryCreated?: () => void;
 }
 
 // API基础URL
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001/api';
 
-export function NewStoryModal({ isOpen, onClose }: NewStoryModalProps) {
+export function NewStoryModal({ isOpen, onClose, onStoryCreated }: NewStoryModalProps) {
+  const { token } = useAuth();
   const [storyInfo, setStoryInfo] = useState<StoryInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'npcs' | 'locations' | 'config'>('npcs');
+  const [activeTab, setActiveTab] = useState<'basic' | 'npcs' | 'locations' | 'config'>('basic');
+  
+  // 新增：故事基本信息状态
+  const [storyName, setStoryName] = useState('');
+  const [storyDescription, setStoryDescription] = useState('');
+  const [creating, setCreating] = useState(false);
   
   // 新关系输入状态
   const [newRelationInputs, setNewRelationInputs] = useState<Record<number, {key: string, value: string}>>({});
@@ -54,6 +63,11 @@ export function NewStoryModal({ isOpen, onClose }: NewStoryModalProps) {
   useEffect(() => {
     if (isOpen) {
       fetchStoryInfo();
+      // 重置表单状态
+      setStoryName('');
+      setStoryDescription('');
+      setActiveTab('basic');
+      setError(null);
     }
   }, [isOpen]);
 
@@ -90,6 +104,119 @@ export function NewStoryModal({ isOpen, onClose }: NewStoryModalProps) {
       setError(e instanceof Error ? e.message : '获取故事信息失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 创建完整故事
+  const handleCreateStory = async () => {
+    console.log('🚀 [NewStoryModal] 开始创建故事流程');
+    
+    if (!storyInfo || !token) {
+      const errorMsg = !storyInfo ? '故事信息未加载' : '用户未登录';
+      console.error(`❌ [NewStoryModal] 预检查失败 - ${errorMsg}`);
+      setError(`缺少必要信息: ${errorMsg}`);
+      return;
+    }
+
+    if (!storyName.trim()) {
+      console.error('❌ [NewStoryModal] 验证失败 - 故事名称为空');
+      setError('请输入故事名称');
+      return;
+    }
+
+    console.log('📊 [NewStoryModal] 故事数据统计:', {
+      name: storyName,
+      descriptionLength: storyDescription.length,
+      npcCount: storyInfo.npcs.length,
+      locationCount: storyInfo.locations.length,
+      gameConfig: storyInfo.game_config
+    });
+
+    // 记录token状态（不记录完整token）
+    const tokenPreview = token.length > 20 ? `${token.substring(0, 10)}...${token.substring(token.length - 10)}` : '***';
+    console.log('🔑 [NewStoryModal] Token状态:', {
+      hasToken: !!token,
+      tokenLength: token.length,
+      tokenPreview
+    });
+
+    try {
+      setCreating(true);
+      setError(null);
+      
+      console.log('⏳ [NewStoryModal] 设置创建状态 - 开始创建');
+
+      const createRequest: CreateCompleteStoryRequest = {
+        name: storyName.trim(),
+        description: storyDescription.trim(),
+        npcs: storyInfo.npcs,
+        locations: storyInfo.locations,
+        game_config: storyInfo.game_config
+      };
+
+      console.log('📝 [NewStoryModal] 创建请求构建完成');
+      console.log('🚀 [NewStoryModal] 调用API创建故事');
+
+      const result = await StoryApi.createCompleteStory(createRequest, token);
+
+      console.log('✅ [NewStoryModal] 故事创建成功:', {
+        storyId: result.story?.id,
+        storyName: result.story?.name,
+        createdAt: result.story?.created_at,
+        message: result.message
+      });
+
+      // 调用成功回调
+      if (onStoryCreated) {
+        console.log('📞 [NewStoryModal] 调用成功回调');
+        onStoryCreated();
+      }
+
+      // 关闭弹窗
+      console.log('🔄 [NewStoryModal] 关闭弹窗');
+      onClose();
+
+      // 显示成功消息
+      const successMsg = `故事 "${result.story.name}" 创建成功！`;
+      console.log('🎉 [NewStoryModal] 显示成功消息:', successMsg);
+      alert(successMsg);
+
+    } catch (e: any) {
+      console.error('❌ [NewStoryModal] 创建故事失败:', e);
+      
+      // 详细的错误日志
+      console.error('❌ [NewStoryModal] 错误详情:', {
+        errorName: e.name,
+        errorMessage: e.message,
+        errorStack: e.stack,
+        storyName: storyName,
+        tokenPreview
+      });
+      
+      // 根据错误类型设置用户友好的错误消息
+      let userErrorMessage = '';
+      if (e.message?.includes('认证失败') || e.message?.includes('Token')) {
+        userErrorMessage = '登录状态已过期，请重新登录后再试';
+        console.error('🔐 [NewStoryModal] 认证相关错误');
+      } else if (e.message?.includes('权限不足')) {
+        userErrorMessage = '您没有创建故事的权限';
+        console.error('🚫 [NewStoryModal] 权限相关错误');
+      } else if (e.message?.includes('网络')) {
+        userErrorMessage = '网络连接失败，请检查网络后重试';
+        console.error('🌐 [NewStoryModal] 网络相关错误');
+      } else if (e.message?.includes('服务器')) {
+        userErrorMessage = '服务器暂时不可用，请稍后重试';
+        console.error('🔧 [NewStoryModal] 服务器相关错误');
+      } else {
+        userErrorMessage = e.message || '创建故事失败，请重试';
+        console.error('❓ [NewStoryModal] 其他错误');
+      }
+      
+      setError(userErrorMessage);
+      
+    } finally {
+      setCreating(false);
+      console.log('🔄 [NewStoryModal] 重置创建状态');
     }
   };
 
@@ -351,6 +478,16 @@ export function NewStoryModal({ isOpen, onClose }: NewStoryModalProps) {
         {/* 标签页导航 */}
         <div className="flex border-b">
           <button
+            onClick={() => setActiveTab('basic')}
+            className={`px-6 py-3 font-medium ${
+              activeTab === 'basic'
+                ? 'border-b-2 border-blue-500 text-blue-600'
+                : 'text-gray-600 hover:text-gray-800'
+            }`}
+          >
+            基本信息
+          </button>
+          <button
             onClick={() => setActiveTab('npcs')}
             className={`px-6 py-3 font-medium ${
               activeTab === 'npcs'
@@ -401,6 +538,35 @@ export function NewStoryModal({ isOpen, onClose }: NewStoryModalProps) {
             </div>
           ) : storyInfo ? (
             <>
+              {/* 基本信息标签页 */}
+              {activeTab === 'basic' && (
+                <div className="space-y-6">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-semibold text-gray-800">故事基本信息编辑</h3>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">故事名称</label>
+                      <input
+                        type="text"
+                        value={storyName}
+                        onChange={(e) => setStoryName(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">故事描述</label>
+                      <textarea
+                        value={storyDescription}
+                        onChange={(e) => setStoryDescription(e.target.value)}
+                        rows={3}
+                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* NPC信息标签页 */}
               {activeTab === 'npcs' && (
                 <div className="space-y-6">
@@ -778,13 +944,11 @@ export function NewStoryModal({ isOpen, onClose }: NewStoryModalProps) {
             取消
           </button>
           <button
-            className="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-            onClick={() => {
-              // 这里不触发任何逻辑，按照用户要求
-              console.log('新建按钮被点击，但不触发任何逻辑');
-            }}
+            className="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            onClick={handleCreateStory}
+            disabled={creating || loading || !storyName.trim()}
           >
-            新建
+            {creating ? '创建中...' : '新建'}
           </button>
         </div>
       </div>

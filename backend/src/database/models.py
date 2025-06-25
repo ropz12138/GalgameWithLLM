@@ -1,7 +1,7 @@
 """
 数据库ORM模型
 """
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON, ForeignKey, UniqueConstraint, Index, CheckConstraint
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -237,4 +237,166 @@ class NPC(Base):
             "schedule": self.schedule or [],
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class MessageType(Base):
+    """消息类型表模型"""
+    __tablename__ = "message_types"
+    
+    # 主键
+    id = Column(Integer, primary_key=True)
+    
+    # 类型名称，唯一
+    type_name = Column(String(30), nullable=False, unique=True)
+    
+    # 描述
+    description = Column(Text, nullable=True)
+    
+    def __repr__(self):
+        return f"<MessageType(id={self.id}, type_name='{self.type_name}')>"
+
+
+class EntityType(Base):
+    """实体类型表模型"""
+    __tablename__ = "entity_types"
+    
+    # 主键
+    id = Column(Integer, primary_key=True)
+    
+    # 类型名称，唯一
+    type_name = Column(String(30), nullable=False, unique=True)
+    
+    # 描述
+    description = Column(Text, nullable=True)
+    
+    def __repr__(self):
+        return f"<EntityType(id={self.id}, type_name='{self.type_name}')>"
+
+
+class Entity(Base):
+    """通用实体表模型"""
+    __tablename__ = "entities"
+    
+    # 主键，自增序列
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    
+    # 实体类型ID，外键
+    entity_type = Column(Integer, ForeignKey("entity_types.id"), nullable=False)
+    
+    # 故事ID，外键（某些实体属于特定故事）
+    story_id = Column(Integer, ForeignKey("stories.id"), nullable=True)
+    
+    # 实体名称，非空
+    name = Column(String(100), nullable=False)
+    
+    # 程序中使用的键名
+    key_name = Column(String(100), nullable=True, index=True)
+    
+    # 实体描述
+    description = Column(Text, nullable=True)
+    
+    # 元数据，JSON格式
+    entity_metadata = Column(JSON, default=dict)
+    
+    # 创建时间
+    created_at = Column(
+        DateTime(timezone=True), 
+        server_default=func.now(),
+        nullable=False
+    )
+    
+    # 表约束：同一故事内的key_name唯一
+    __table_args__ = (
+        UniqueConstraint('story_id', 'key_name', name='uq_entity_story_key'),
+        Index('idx_entity_story_key', 'story_id', 'key_name'),
+        Index('idx_entity_type', 'entity_type'),
+    )
+    
+    def __repr__(self):
+        return f"<Entity(id={self.id}, name='{self.name}', key_name='{self.key_name}')>"
+    
+    def to_dict(self):
+        """转换为字典"""
+        return {
+            "id": self.id,
+            "entity_type": self.entity_type,
+            "story_id": self.story_id,
+            "name": self.name,
+            "key_name": self.key_name,
+            "description": self.description,
+            "metadata": self.entity_metadata or {},
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class Message(Base):
+    """用户交互消息表模型"""
+    __tablename__ = "messages"
+    
+    # 主键，自增序列
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    
+    # 用户和故事关联
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    story_id = Column(Integer, ForeignKey("stories.id"), nullable=False, index=True)
+    session_id = Column(String(100), nullable=False, index=True)  # 游戏会话ID
+    
+    # 消息分类（int型）
+    message_type = Column(Integer, nullable=False, index=True)  # 1-6对应不同类型
+    sub_type = Column(String(50), nullable=True, index=True)    # 细分类型
+    
+    # 消息内容
+    content = Column(Text, nullable=False)                      # 主要消息内容
+    structured_data = Column(JSON, nullable=True)               # 结构化数据（可选）
+    
+    # 关联信息（int型）
+    related_entity = Column(Integer, ForeignKey("entities.id"), nullable=True, index=True)  # 相关实体ID
+    
+    # 游戏上下文
+    location = Column(Integer, ForeignKey("entities.id"), nullable=True, index=True)  # 位置ID
+    game_time = Column(DateTime(timezone=True), nullable=True)  # 游戏内时间
+    
+    # 元数据
+    message_metadata = Column(JSON, default=dict)                       # 额外的元数据信息
+    
+    # 时间戳
+    created_at = Column(
+        DateTime(timezone=True), 
+        server_default=func.now(),
+        nullable=False,
+        index=True
+    )
+    
+    # 表约束和索引
+    __table_args__ = (
+        # 复合索引优化查询性能
+        Index('idx_messages_user_story_session', 'user_id', 'story_id', 'session_id'),
+        Index('idx_messages_type_subtype', 'message_type', 'sub_type'),
+        Index('idx_messages_user_type_time', 'user_id', 'message_type', 'created_at'),
+        Index('idx_messages_session_time', 'session_id', 'game_time'),
+        Index('idx_messages_game_time', 'game_time'),
+        # 检查约束
+        CheckConstraint('message_type BETWEEN 1 AND 6'),  # 限制message_type范围
+    )
+    
+    def __repr__(self):
+        return f"<Message(id={self.id}, user_id={self.user_id}, message_type={self.message_type}, content='{self.content[:50]}...')>"
+    
+    def to_dict(self):
+        """转换为字典"""
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "story_id": self.story_id,
+            "session_id": self.session_id,
+            "message_type": self.message_type,
+            "sub_type": self.sub_type,
+            "content": self.content,
+            "structured_data": self.structured_data,
+            "related_entity": self.related_entity,
+            "location": self.location,
+            "game_time": self.game_time.isoformat() if self.game_time else None,
+            "metadata": self.message_metadata or {},
+            "created_at": self.created_at.isoformat() if self.created_at else None,
         } 

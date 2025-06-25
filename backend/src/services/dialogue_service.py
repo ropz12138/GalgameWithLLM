@@ -64,6 +64,11 @@ class DialogueService:
             # 生成NPC对话响应
             npc_response = await self.generate_npc_dialogue(npc_name, player_message, game_state)
             
+            # 生成对话场景的五感反馈
+            dialogue_sensory_feedback = await self.generate_dialogue_sensory_feedback(
+                npc_name, player_message, npc_response, game_state
+            )
+            
             # 尝试更新NPC计划表
             schedule_updated = await self.analyze_and_update_schedule(
                 npc_name, player_message, npc_response, game_state
@@ -76,6 +81,15 @@ class DialogueService:
             messages = [
                 {"speaker": npc_name, "message": npc_response, "type": "dialogue", "timestamp": new_time}
             ]
+            
+            # 添加五感反馈消息
+            if dialogue_sensory_feedback:
+                messages.append({
+                    "speaker": "系统", 
+                    "message": dialogue_sensory_feedback, 
+                    "type": "sensory_feedback", 
+                    "timestamp": new_time
+                })
             
             if schedule_updated:
                 messages.append({
@@ -91,7 +105,8 @@ class DialogueService:
                 "messages": messages,
                 "time_cost": time_cost,
                 "npc_name": npc_name,
-                "schedule_updated": schedule_updated
+                "schedule_updated": schedule_updated,
+                "dialogue_sensory_feedback": dialogue_sensory_feedback
             }
             
         except Exception as e:
@@ -346,4 +361,75 @@ class DialogueService:
             logger.error(f"❌ 计划表更新分析失败: {e}")
             import traceback
             traceback.print_exc()
-            return False 
+            return False
+    
+    async def generate_dialogue_sensory_feedback(self, npc_name: str, player_message: str, 
+                                               npc_response: str, game_state: GameStateModel) -> str:
+        """
+        生成对话场景的五感反馈
+        
+        Args:
+            npc_name: NPC名称
+            player_message: 玩家消息
+            npc_response: NPC响应
+            game_state: 游戏状态
+            
+        Returns:
+            对话场景的五感反馈JSON字符串
+        """
+        try:
+            logger.info(f"🌟 [DialogueService] 生成对话五感反馈: {npc_name}")
+            
+            # 获取NPC信息
+            from data.characters import all_actresses
+            npc_info = next((a for a in all_actresses if a['name'] == npc_name), None)
+            
+            # 获取当前位置信息
+            from data.locations import all_locations_data
+            location_data = all_locations_data.get(game_state.player_location, {})
+            
+            # 获取NPC当前状态和事件
+            from .npc_service import NPCService
+            npc_service = NPCService()
+            current_location, current_event = npc_service.get_npc_current_location_and_event(
+                npc_name, game_state.current_time, game_state
+            )
+            
+            # 构建对话五感反馈提示词
+            prompt = self.prompt_templates.get_dialogue_sensory_feedback_prompt(
+                npc_name=npc_name,
+                npc_personality=npc_info.get("personality", "友好") if npc_info else "友好",
+                npc_appearance=npc_info.get("appearance", "普通") if npc_info else "普通",
+                player_message=player_message,
+                npc_response=npc_response,
+                location_name=location_data.get("name", game_state.player_location),
+                location_description=location_data.get("description", ""),
+                current_time=game_state.current_time,
+                npc_activity=current_event
+            )
+            
+            logger.info(f"📝 对话五感反馈提示词:\n{prompt}")
+            
+            # 调用LLM生成五感反馈
+            response = await self.llm_client.chat_completion(prompt)
+            
+            logger.info(f"🤖 对话五感反馈LLM响应:\n{response}")
+            
+            # 验证JSON格式
+            try:
+                import json
+                parsed = json.loads(response)
+                if isinstance(parsed, dict) and any(key in parsed for key in ['vision', 'hearing', 'smell', 'touch']):
+                    return response
+                else:
+                    logger.warning(f"LLM返回的五感反馈格式不正确: {response}")
+                    return None
+            except json.JSONDecodeError:
+                logger.warning(f"LLM返回的五感反馈不是有效JSON: {response}")
+                return None
+            
+        except Exception as e:
+            logger.error(f"❌ 对话五感反馈生成失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return None 

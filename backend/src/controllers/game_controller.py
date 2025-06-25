@@ -14,28 +14,30 @@ class GameController:
     def __init__(self):
         self.game_service = GameService()
     
-    async def get_game_state(self, session_id: str = "default") -> Dict[str, Any]:
+    async def get_game_state(self, session_id: str = "default", story_id: int = None) -> Dict[str, Any]:
         """
         获取游戏状态
         
         Args:
             session_id: 会话ID
+            story_id: 故事ID
             
         Returns:
             游戏状态
         """
         try:
-            return self.game_service.get_game_state(session_id)
+            return await self.game_service.get_game_state(session_id, story_id)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"获取游戏状态失败: {str(e)}")
     
-    async def process_action(self, action: str, session_id: str = "default") -> Dict[str, Any]:
+    async def process_action(self, action: str, session_id: str = "default", story_id: int = None) -> Dict[str, Any]:
         """
         处理玩家行动
         
         Args:
             action: 玩家行动
             session_id: 会话ID
+            story_id: 故事ID
             
         Returns:
             处理结果
@@ -44,8 +46,9 @@ class GameController:
             print(f"\n🔍 [后端] 收到处理行动请求:")
             print(f"  📝 行动内容: '{action}'")
             print(f"  🆔 会话ID: {session_id}")
+            print(f"  📚 故事ID: {story_id}")
             
-            result = await self.game_service.process_action(action, session_id)
+            result = await self.game_service.process_action(action, session_id, story_id)
             
             print(f"✅ [后端] 行动处理完成:")
             print(f"  📊 返回结果: {result}")
@@ -131,4 +134,65 @@ class GameController:
         try:
             return await self.game_service.continue_dialogue(npc_name, message, session_id)
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"继续对话失败: {str(e)}") 
+            raise HTTPException(status_code=500, detail=f"继续对话失败: {str(e)}")
+    
+    async def get_story_messages(
+        self, 
+        user_id: int, 
+        story_id: int, 
+        session_id: str = None,
+        limit: int = 100,
+        offset: int = 0
+    ) -> Dict[str, Any]:
+        """
+        获取故事的消息历史
+        
+        Args:
+            user_id: 用户ID
+            story_id: 故事ID 
+            session_id: 会话ID（可选）
+            limit: 限制返回数量
+            offset: 偏移量
+            
+        Returns:
+            消息历史数据
+        """
+        try:
+            print(f"🔍 [GameController] 获取故事消息历史 - 用户ID: {user_id}, 故事ID: {story_id}, 会话: {session_id or 'ALL'}")
+            
+            # 调用MessageService获取消息
+            from ..services.message_service import MessageService
+            message_service = MessageService()
+            
+            result = await message_service.get_story_messages(
+                user_id=user_id,
+                story_id=story_id,
+                session_id=session_id,
+                limit=limit,
+                offset=offset
+            )
+            
+            if "error" in result:
+                print(f"❌ [GameController] 获取故事消息失败: {result['error']}")
+                return {
+                    "success": False,
+                    "error": result["error"],
+                    "messages": [],
+                    "total_count": 0
+                }
+            
+            print(f"✅ [GameController] 获取故事消息成功 - 消息数: {len(result['messages'])}, 总数: {result['total_count']}")
+            
+            return {
+                "success": True,
+                "data": result
+            }
+            
+        except Exception as e:
+            print(f"❌ [GameController] 获取故事消息异常: {e}")
+            return {
+                "success": False,
+                "error": f"获取故事消息失败: {str(e)}",
+                "messages": [],
+                "total_count": 0
+            } 

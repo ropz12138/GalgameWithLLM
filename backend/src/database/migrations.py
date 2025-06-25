@@ -10,7 +10,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(o
 sys.path.append(PROJECT_ROOT)
 
 from backend.src.database.config import get_engine, get_session
-from backend.src.database.models import Base, Story, Location, NPC, User
+from backend.src.database.models import Base, Story, Location, NPC, User, Entity, EntityType, MessageType
 from data.characters import all_actresses
 from data.locations import all_locations_data, location_connections
 
@@ -88,6 +88,10 @@ def migrate_default_story():
         
         print(f"✅ 迁移了 {len(all_actresses)} 个NPC")
         
+        # 迁移实体数据
+        print("🔄 迁移实体数据...")
+        migrate_entities(session, default_story.id)
+        
         session.commit()
         print("✅ 默认故事数据迁移完成")
         return default_story.id
@@ -98,6 +102,99 @@ def migrate_default_story():
         return None
     finally:
         session.close()
+
+
+def migrate_entities(session, story_id):
+    """迁移实体数据"""
+    try:
+        # NPC实体（故事相关）
+        npc_entities = [
+            (1, story_id, '林凯', 'linkai'),
+            (1, story_id, '林若曦', 'linruoxi'),
+            (1, story_id, '张雨晴', 'zhangyuqing'),
+        ]
+        
+        for entity_type, story_id_val, name, key_name in npc_entities:
+            existing = session.query(Entity).filter_by(story_id=story_id_val, key_name=key_name).first()
+            if not existing:
+                entity = Entity(
+                    entity_type=entity_type,
+                    story_id=story_id_val,
+                    name=name,
+                    key_name=key_name,
+                    description=f"NPC角色: {name}"
+                )
+                session.add(entity)
+                print(f"✅ 创建NPC实体: {name}")
+        
+        # 位置实体（故事相关）
+        location_entities = [
+            (2, story_id, '林凯房间', 'linkai_room'),
+            (2, story_id, '林若曦房间', 'linruoxi_room'),
+            (2, story_id, '张雨晴房间', 'zhangyuqing_room'),
+            (2, story_id, '客厅', 'livingroom'),
+            (2, story_id, '厨房', 'kitchen'),
+            (2, story_id, '卫生间', 'bathroom'),
+        ]
+        
+        for entity_type, story_id_val, name, key_name in location_entities:
+            existing = session.query(Entity).filter_by(story_id=story_id_val, key_name=key_name).first()
+            if not existing:
+                entity = Entity(
+                    entity_type=entity_type,
+                    story_id=story_id_val,
+                    name=name,
+                    key_name=key_name,
+                    description=f"游戏位置: {name}"
+                )
+                session.add(entity)
+                print(f"✅ 创建位置实体: {name}")
+        
+        # 物品实体（通用）
+        item_entities = [
+            (3, None, '苹果', 'apple'),
+            (3, None, '手机', 'phone'),
+            (3, None, '书籍', 'book'),
+            (3, None, '咖啡', 'coffee'),
+        ]
+        
+        for entity_type, story_id_val, name, key_name in item_entities:
+            existing = session.query(Entity).filter_by(story_id=story_id_val, key_name=key_name).first()
+            if not existing:
+                entity = Entity(
+                    entity_type=entity_type,
+                    story_id=story_id_val,
+                    name=name,
+                    key_name=key_name,
+                    description=f"游戏物品: {name}"
+                )
+                session.add(entity)
+                print(f"✅ 创建物品实体: {name}")
+        
+        # 系统实体（通用）
+        system_entities = [
+            (4, None, '系统', 'system'),
+            (4, None, '游戏引擎', 'game_engine'),
+        ]
+        
+        for entity_type, story_id_val, name, key_name in system_entities:
+            existing = session.query(Entity).filter_by(story_id=story_id_val, key_name=key_name).first()
+            if not existing:
+                entity = Entity(
+                    entity_type=entity_type,
+                    story_id=story_id_val,
+                    name=name,
+                    key_name=key_name,
+                    description=f"系统实体: {name}"
+                )
+                session.add(entity)
+                print(f"✅ 创建系统实体: {name}")
+        
+        print("✅ 实体数据迁移完成")
+        
+    except Exception as e:
+        print(f"❌ 实体数据迁移失败: {e}")
+        raise
 
 
 def run_migrations():

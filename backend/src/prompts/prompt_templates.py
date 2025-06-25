@@ -53,6 +53,22 @@ class PromptTemplates:
                                           action=action)
     
     @staticmethod
+    def get_dialogue_sensory_feedback_prompt(npc_name: str, npc_personality: str, npc_appearance: str,
+                                           player_message: str, npc_response: str, location_name: str,
+                                           location_description: str, current_time: str, npc_activity: str) -> str:
+        """获取对话五感反馈提示词"""
+        return prompt_manager.render_prompt('dialogue_sensory_feedback',
+                                          npc_name=npc_name,
+                                          npc_personality=npc_personality,
+                                          npc_appearance=npc_appearance,
+                                          player_message=player_message,
+                                          npc_response=npc_response,
+                                          location_name=location_name,
+                                          location_description=location_description,
+                                          current_time=current_time,
+                                          npc_activity=npc_activity)
+    
+    @staticmethod
     def get_move_destination_prompt(player_name: str, current_location: str, 
                                    all_location_info: str, action: str) -> str:
         """获取移动目标解析提示词"""
