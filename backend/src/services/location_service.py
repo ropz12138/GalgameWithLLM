@@ -6,6 +6,7 @@ import os
 from typing import Dict, Any, List, Optional
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.output_parsers import JsonOutputParser
+from datetime import datetime
 
 # 添加路径
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -26,6 +27,7 @@ sys.path.append(PROJECT_ROOT)
 
 from data.locations import all_locations_data, location_connections
 from data.characters import all_actresses
+from ..services.location_db_service import LocationDBService
 
 
 class LocationService:
@@ -34,6 +36,7 @@ class LocationService:
     def __init__(self):
         self.llm_service = LLMService()
         self.npc_service = NPCService()
+        self.location_db_service = LocationDBService()
     
     def get_npcs_at_location(self, location_name: str, npc_locations: Dict[str, str], current_time: str, game_state=None) -> List[Dict]:
         """获取指定位置的NPC列表"""
@@ -45,6 +48,13 @@ class LocationService:
         
         npcs_at_location = []
         
+        if not game_state or not game_state.story_id:
+            print("❌ 无法获取故事ID")
+            return npcs_at_location
+        
+        # 从数据库获取当前故事的所有NPC
+        all_npcs = self.npc_service.get_all_npcs(game_state.story_id)
+        
         for npc_name, npc_location in npc_locations.items():
             print(f"  🔍 检查NPC {npc_name}: 位置 {npc_location}")
             
@@ -52,7 +62,7 @@ class LocationService:
                 print(f"    ✅ {npc_name} 在目标位置")
                 
                 # 获取NPC详细信息
-                npc_obj = next((a for a in all_actresses if a['name'] == npc_name), None)
+                npc_obj = next((npc for npc in all_npcs if npc.get('name') == npc_name), None)
                 if npc_obj:
                     # 获取当前活动
                     _, npc_event = self.npc_service.get_npc_current_location_and_event(npc_name, current_time, game_state)
@@ -79,8 +89,23 @@ class LocationService:
         print(f"\n🔍 [LocationService] 获取位置详情 - 位置: {location_name}")
         
         try:
-            location_data = all_locations_data.get(location_name, {})
-            connections = location_connections.get(location_name, [])
+            if not game_state or not game_state.story_id:
+                print("❌ 无法获取故事ID")
+                return {
+                    "description": "",
+                    "connections": [],
+                    "npcs_present": []
+                }
+            
+            # 从数据库获取位置数据
+            location_result = self.location_db_service.get_location_by_key(game_state.story_id, location_name)
+            if not location_result.get("success"):
+                print(f"❌ 获取位置数据失败: {location_result.get('error')}")
+                location_data = {}
+                connections = []
+            else:
+                location_data = location_result.get("data", {})
+                connections = location_data.get("connections", [])
             
             print(f"🔍 位置数据:")
             print(f"  - location_data: {location_data}")

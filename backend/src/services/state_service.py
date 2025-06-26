@@ -106,11 +106,11 @@ class StateService:
                     # 设置其他默认属性
                     game_state.player_personality = initial_config.get("player_personality", "普通")
                     
-                    # 初始化NPC位置（基于当前时间）
+                    # 初始化NPC位置
                     from .npc_service import NPCService
                     npc_service = NPCService()
                     game_state.npc_locations = npc_service.update_npc_locations_by_time(
-                        game_state.current_time, game_state.story_id
+                        game_state.current_time, game_state
                     )
                     
                     # 初始化其他属性
@@ -190,7 +190,7 @@ class StateService:
             from .npc_service import NPCService
             npc_service = NPCService()
             game_state.npc_locations = npc_service.update_npc_locations_by_time(
-                game_state.current_time, game_state.story_id
+                game_state.current_time, game_state
             )
             
             # 添加欢迎消息

@@ -26,17 +26,7 @@ interface GameState {
   dialogue_history: DialogueEntry[];
 }
 
-const locationKeyToName: Record<string, string> = {
-  "linkai_room": "林凯房间",
-  "linruoxi_room": "林若曦房间",
-  "zhangyuqing_room": "张雨晴房间",
-  "livingroom": "客厅",
-  "kitchen": "厨房",
-  "bathroom": "卫生间"
-};
-
-// API基础URL - 从环境变量读取，默认为8001端口
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001/api';
+// API基础配置已在api层统一管理
 
 // 受保护的路由组件
 function ProtectedRoute({ children }: { children: React.ReactNode }) {

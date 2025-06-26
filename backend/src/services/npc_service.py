@@ -20,83 +20,114 @@ import os
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(PROJECT_ROOT)
 
-from data.characters import all_actresses
-from data.locations import all_locations_data
+from ..services.npc_db_service import NPCDBService
 
 
 class NPCService:
     """NPC服务类"""
     
     def __init__(self):
-        pass
+        self.npc_db_service = NPCDBService()
+    
+    def _get_all_npcs_for_story(self, story_id: int) -> List[Dict[str, Any]]:
+        """从数据库获取指定故事的所有NPC数据"""
+        try:
+            result = self.npc_db_service.get_npcs_by_story(story_id)
+            if result.get("success"):
+                return result.get("data", [])
+            else:
+                print(f"❌ 获取故事NPC失败: {result.get('error')}")
+                return []
+        except Exception as e:
+            print(f"❌ 获取故事NPC异常: {e}")
+            return []
     
     def update_npc_locations_by_time(self, current_time: str, game_state: GameStateModel = None) -> Dict[str, str]:
         """根据时间更新NPC位置"""
         print(f"\n📍 [NPCService] 根据时间更新NPC位置 - 当前时间: {current_time}")
         
+        if not game_state or not game_state.story_id:
+            print("❌ 无法获取故事ID")
+            return {}
+        
+        print(f"📊 故事ID: {game_state.story_id}")
+        
         npc_locations = {}
         
-        for actress in all_actresses:
-            npc_name = actress["name"]
+        # 从数据库获取当前故事的所有NPC
+        all_npcs = self._get_all_npcs_for_story(game_state.story_id)
+        print(f"📊 从数据库获取的NPC数量: {len(all_npcs)}")
+        
+        for npc_data in all_npcs:
+            npc_name = npc_data.get("name")
+            print(f"🔍 处理NPC: {npc_name}")
             location, event = self.get_npc_current_location_and_event(npc_name, current_time, game_state)
             npc_locations[npc_name] = location
             print(f"  📍 {npc_name}: {location} (正在{event})")
         
+        print(f"📊 最终NPC位置结果: {npc_locations}")
         return npc_locations
     
     def get_npc_current_location_and_event(self, npc_name: str, current_time: str, game_state: GameStateModel = None) -> Tuple[str, str]:
         """获取NPC当前位置和活动"""
-        # 确保current_time是字符串格式
-        if not isinstance(current_time, str):
-            print(f"⚠️ [NPCService] current_time参数类型错误: {type(current_time)}, 值: {current_time}")
-            # 如果是datetime.time对象，转换为字符串
-            if hasattr(current_time, 'strftime'):
-                current_time = current_time.strftime("%H:%M")
-            else:
-                current_time = str(current_time)
-            print(f"⚠️ [NPCService] 已转换为字符串: {current_time}")
         
-        # 查找NPC数据
-        npc_obj = next((a for a in all_actresses if a['name'] == npc_name), None)
-        if not npc_obj:
-            print(f"❌ 未找到NPC: {npc_name}")
-            return "unknown_location", "未知活动"
+        # 首先尝试从动态计划表获取
+        if game_state and hasattr(game_state, 'npc_dynamic_schedules'):
+            dynamic_schedule = game_state.npc_dynamic_schedules.get(npc_name)
+            if dynamic_schedule:
+                print(f"✅ {npc_name} 使用动态计划表")
+                location, event = self._get_location_and_event_from_schedule(dynamic_schedule, current_time)
+                if location != "unknown_location":
+                    print(f"✅ {npc_name} 在 {location} 进行 {event}")
+                    return location, event
         
-        # 获取当前有效的计划表（优先使用动态计划表）
-        schedule = self.get_npc_current_schedule(npc_name, game_state)
-        if not schedule:
-            print(f"❌ {npc_name} 没有计划表")
-            return "unknown_location", "空闲"
-        
-        # 查找当前时间对应的活动
-        for item in schedule:
-            # 使用TimeUtils判断时间范围
-            from ..utils.time_utils import TimeUtils
-            
-            if TimeUtils.is_time_in_range(current_time, item["start_time"], item["end_time"]):
-                location = item["location"]
-                event = item["event"]
-                print(f"✅ {npc_name} 在 {location} 进行 {event}")
-                return location, event
-        
-        # 如果没有找到对应的时间段，使用最后一个计划或默认位置
-        if schedule:
-            last_item = schedule[-1]
-            location = last_item["location"]
-            event = "空闲"
-            print(f"⚠️ {npc_name} 当前时间无计划，使用最后位置: {location}")
-            return location, event
+        # 获取NPC的数据库记录
+        if game_state and game_state.story_id:
+            result = self.npc_db_service.get_npc_by_name(game_state.story_id, npc_name)
+            if result.get("success"):
+                npc_data = result.get("data", {})
+                original_schedule = npc_data.get("schedule", [])
+                if original_schedule:
+                    print(f"✅ {npc_name} 使用数据库计划表")
+                    location, event = self._get_location_and_event_from_schedule(original_schedule, current_time)
+                    if location != "unknown_location":
+                        print(f"✅ {npc_name} 在 {location} 进行 {event}")
+                        return location, event
         
         print(f"❌ {npc_name} 无法确定位置")
         return "unknown_location", "空闲"
     
-    def get_npc_by_name(self, npc_name: str) -> Optional[dict]:
-        """根据名称获取NPC数据"""
-        return next((a for a in all_actresses if a['name'] == npc_name), None)
+    def _get_location_and_event_from_schedule(self, schedule: List[Dict], current_time: str) -> Tuple[str, str]:
+        """从计划表中获取当前时间的位置和活动"""
+        try:
+            from ..utils.time_utils import TimeUtils
+            current_time_obj = TimeUtils.parse_game_time(current_time)
+            
+            for item in schedule:
+                start_time = TimeUtils.parse_game_time(item["start_time"])
+                end_time = TimeUtils.parse_game_time(item["end_time"])
+                
+                if start_time <= current_time_obj < end_time:
+                    return item["location"], item["event"]
+            
+            return "unknown_location", "空闲"
+        except Exception as e:
+            print(f"计划表解析失败: {e}")
+            return "unknown_location", "空闲"
     
-    def get_all_npcs(self) -> List[dict]:
+    def get_npc_by_name(self, npc_name: str, story_id: int = None) -> Optional[dict]:
+        """根据名称获取NPC数据"""
+        if story_id:
+            result = self.npc_db_service.get_npc_by_name(story_id, npc_name)
+            if result.get("success"):
+                return result.get("data")
+        return None
+    
+    def get_all_npcs(self, story_id: int = None) -> List[dict]:
         """获取所有NPC数据"""
-        return all_actresses.copy()
+        if story_id:
+            return self._get_all_npcs_for_story(story_id)
+        return []
     
     def get_npc_mood(self, npc_name: str, game_state: GameStateModel) -> str:
         """获取NPC当前心情"""
@@ -104,10 +135,11 @@ class NPCService:
         if hasattr(game_state, 'npc_moods') and npc_name in game_state.npc_moods:
             return game_state.npc_moods[npc_name]
         
-        # 从NPC数据获取默认心情
-        npc_obj = self.get_npc_by_name(npc_name)
-        if npc_obj:
-            return npc_obj.get("mood", "平静")
+        # 从数据库获取默认心情
+        if game_state and game_state.story_id:
+            npc_obj = self.get_npc_by_name(npc_name, game_state.story_id)
+            if npc_obj:
+                return npc_obj.get("mood", "平静")
         
         return "平静"
     
@@ -147,186 +179,96 @@ class NPCService:
         game_state.npc_dialogue_histories[npc_name].append(dialogue_entry)
         print(f"✅ 添加对话到 {npc_name} 的历史记录: {speaker}: {message[:50]}...")
     
-    def get_npc_schedule(self, npc_name: str) -> List[Dict]:
+    def get_npc_schedule(self, npc_name: str, story_id: int = None) -> List[Dict]:
         """获取NPC的计划表"""
-        npc_obj = self.get_npc_by_name(npc_name)
-        if npc_obj:
-            return npc_obj.get("schedule", [])
+        if story_id:
+            npc_obj = self.get_npc_by_name(npc_name, story_id)
+            if npc_obj:
+                return npc_obj.get("schedule", [])
         return []
     
-    def get_npc_personality(self, npc_name: str) -> str:
+    def get_npc_personality(self, npc_name: str, story_id: int = None) -> str:
         """获取NPC性格"""
-        npc_obj = self.get_npc_by_name(npc_name)
-        if npc_obj:
-            return npc_obj.get("personality", "")
+        if story_id:
+            npc_obj = self.get_npc_by_name(npc_name, story_id)
+            if npc_obj:
+                return npc_obj.get("personality", "")
         return ""
     
-    def get_npc_background(self, npc_name: str) -> str:
+    def get_npc_background(self, npc_name: str, story_id: int = None) -> str:
         """获取NPC背景"""
-        npc_obj = self.get_npc_by_name(npc_name)
-        if npc_obj:
-            return npc_obj.get("background", "")
+        if story_id:
+            npc_obj = self.get_npc_by_name(npc_name, story_id)
+            if npc_obj:
+                return npc_obj.get("background", "")
         return ""
     
-    def get_npc_relations(self, npc_name: str) -> Dict:
+    def get_npc_relations(self, npc_name: str, story_id: int = None) -> Dict:
         """获取NPC关系"""
-        npc_obj = self.get_npc_by_name(npc_name)
-        if npc_obj:
-            return npc_obj.get("relations", {})
+        if story_id:
+            npc_obj = self.get_npc_by_name(npc_name, story_id)
+            if npc_obj:
+                return npc_obj.get("relations", {})
         return {}
     
-    def update_npc_schedule(self, npc_name: str, new_schedule_item: Dict, game_state: GameStateModel) -> bool:
-        """
-        动态更新NPC计划表（单个项目，保留兼容性）
+    def get_npc_current_schedule(self, npc_name: str, game_state: GameStateModel = None) -> List[Dict]:
+        """获取NPC当前有效的计划表（优先动态计划表）"""
+        # 优先使用动态计划表
+        if game_state and hasattr(game_state, 'npc_dynamic_schedules'):
+            dynamic_schedule = game_state.npc_dynamic_schedules.get(npc_name)
+            if dynamic_schedule:
+                print(f"✅ 获取 {npc_name} 的动态计划表")
+                return dynamic_schedule
         
-        Args:
-            npc_name: NPC名称
-            new_schedule_item: 新的计划项
-            game_state: 游戏状态
-            
-        Returns:
-            是否更新成功
-        """
-        # 调用新的完整计划表更新方法
-        current_schedule = self.get_npc_current_schedule(npc_name, game_state)
+        # 使用原始计划表
+        if game_state and game_state.story_id:
+            original_schedule = self.get_npc_schedule(npc_name, game_state.story_id)
+            if original_schedule:
+                print(f"✅ 获取 {npc_name} 的原始计划表")
+                return original_schedule
         
-        # 构建新的完整计划表
-        new_complete_schedule = []
-        new_start = datetime.strptime(new_schedule_item["start_time"], "%H:%M").time()
-        new_end = datetime.strptime(new_schedule_item["end_time"], "%H:%M").time()
-        
-        # 移除冲突的计划项，保留其他项
-        for item in current_schedule:
-            item_start = datetime.strptime(item["start_time"], "%H:%M").time()
-            item_end = datetime.strptime(item["end_time"], "%H:%M").time()
-            
-            # 检查时间冲突
-            if not (new_end <= item_start or new_start >= item_end):
-                continue  # 跳过冲突项
-            
-            new_complete_schedule.append(item)
-        
-        # 添加新计划项
-        new_complete_schedule.append(new_schedule_item)
-        
-        # 按时间排序
-        new_complete_schedule.sort(key=lambda x: datetime.strptime(x["start_time"], "%H:%M").time())
-        
-        return self.replace_npc_complete_schedule(npc_name, new_complete_schedule, game_state)
+        print(f"❌ {npc_name} 没有可用的计划表")
+        return []
     
-    def replace_npc_complete_schedule(self, npc_name: str, new_complete_schedule: List[Dict], game_state: GameStateModel) -> bool:
-        """
-        替换NPC的完整计划表
-        
-        Args:
-            npc_name: NPC名称
-            new_complete_schedule: 新的完整计划表
-            game_state: 游戏状态
-            
-        Returns:
-            是否更新成功
-        """
+    def replace_npc_complete_schedule(self, npc_name: str, new_schedule: List[Dict], game_state: GameStateModel) -> bool:
+        """完全替换NPC的计划表"""
         try:
-            print(f"\n📅 [NPCService] 替换 {npc_name} 的完整计划表")
-            
-            # 1. 更新内存中的动态计划表
             if not hasattr(game_state, 'npc_dynamic_schedules'):
                 game_state.npc_dynamic_schedules = {}
             
-            game_state.npc_dynamic_schedules[npc_name] = new_complete_schedule
+            # 更新内存中的动态计划表
+            game_state.npc_dynamic_schedules[npc_name] = new_schedule
+            print(f"✅ 更新 {npc_name} 的动态计划表到内存")
             
-            print(f"  ✅ 内存中的计划表已更新，新计划表:")
-            for item in new_complete_schedule:
-                print(f"    {item['start_time']}-{item['end_time']} 在{item['location']}：{item['event']}")
+            # 持久化到数据库
+            if game_state.story_id:
+                self._persist_schedule_to_database(npc_name, new_schedule, game_state.story_id)
             
-            # 2. 持久化到数据库
-            success = self._persist_schedule_to_database(npc_name, new_complete_schedule, game_state)
-            
-            if success:
-                print(f"  ✅ 已将 {npc_name} 的计划表持久化到数据库")
-                return True
-            else:
-                print(f"  ❌ {npc_name} 的计划表持久化到数据库失败，但内存更新成功")
-                return True  # 内存更新成功，仍然返回True
-            
+            return True
         except Exception as e:
-            print(f"❌ 替换NPC完整计划表失败: {e}")
+            print(f"❌ 替换NPC计划表失败: {e}")
             return False
     
-    def _persist_schedule_to_database(self, npc_name: str, new_schedule: List[Dict], game_state: GameStateModel) -> bool:
-        """
-        将计划表持久化到数据库
-        
-        Args:
-            npc_name: NPC名称
-            new_schedule: 新的计划表
-            game_state: 游戏状态
-            
-        Returns:
-            是否持久化成功
-        """
+    def _persist_schedule_to_database(self, npc_name: str, new_schedule: List[Dict], story_id: int):
+        """将计划表持久化到数据库"""
         try:
-            from ..database.config import get_session
-            from ..database.models import NPC
+            # 先通过story_id和npc_name获取NPC记录
+            npc_result = self.npc_db_service.get_npc_by_name(story_id, npc_name)
+            if not npc_result.get("success"):
+                print(f"❌ 获取NPC记录失败: {npc_result.get('error')}")
+                return
             
-            # 获取故事ID，优先从game_state获取，否则使用默认值1
-            story_id = getattr(game_state, 'story_id', None) or 1
+            npc_data = npc_result.get("data", {})
+            npc_id = npc_data.get("id")
+            if not npc_id:
+                print(f"❌ 无法获取NPC ID: {npc_name}")
+                return
             
-            session = get_session()
-            try:
-                # 查找对应的NPC记录
-                npc_record = session.query(NPC).filter_by(
-                    story_id=story_id,
-                    name=npc_name
-                ).first()
-                
-                if not npc_record:
-                    print(f"❌ 数据库中未找到NPC: {npc_name} (故事ID: {story_id})")
-                    return False
-                
-                # 更新计划表
-                npc_record.schedule = new_schedule
-                
-                # 更新时间戳
-                from datetime import datetime
-                npc_record.updated_at = datetime.now()
-                
-                # 提交更改
-                session.commit()
-                
-                print(f"  📊 数据库更新成功 - NPC ID: {npc_record.id}, 故事ID: {story_id}")
-                print(f"  📋 已更新计划表项目数: {len(new_schedule)}")
-                return True
-                
-            except Exception as db_error:
-                session.rollback()
-                print(f"❌ 数据库操作失败: {db_error}")
-                import traceback
-                traceback.print_exc()
-                return False
-            finally:
-                session.close()
-                
+            # 调用update_npc_schedule方法
+            result = self.npc_db_service.update_npc_schedule(npc_id, new_schedule)
+            if result.get("success"):
+                print(f"✅ {npc_name} 的计划表已持久化到数据库")
+            else:
+                print(f"❌ 持久化计划表失败: {result.get('error')}")
         except Exception as e:
-            print(f"❌ 持久化计划表到数据库失败: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
-    
-    def get_npc_current_schedule(self, npc_name: str, game_state: GameStateModel = None) -> List[Dict]:
-        """
-        获取NPC当前有效的计划表（优先使用动态计划表）
-        
-        Args:
-            npc_name: NPC名称
-            game_state: 游戏状态
-            
-        Returns:
-            当前有效的计划表
-        """
-        # 优先使用动态计划表
-        if game_state and hasattr(game_state, 'npc_dynamic_schedules') and npc_name in game_state.npc_dynamic_schedules:
-            return game_state.npc_dynamic_schedules[npc_name]
-        
-        # 否则使用原始计划表
-        return self.get_npc_schedule(npc_name) 
+            print(f"❌ 持久化计划表异常: {e}") 

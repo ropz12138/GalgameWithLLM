@@ -3,6 +3,7 @@
 """
 import sys
 import os
+import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
@@ -12,6 +13,9 @@ SRC_DIR = os.path.dirname(SCRIPT_DIR)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(SRC_DIR))
 sys.path.append(PROJECT_ROOT)
 sys.path.append(SRC_DIR)
+
+# 设置logger
+logger = logging.getLogger(__name__)
 
 from ..models.game_state_model import GameStateModel
 from ..models.player_model import PlayerModel
@@ -341,14 +345,18 @@ class GameService:
             
             # 更新NPC位置
             npc_locations = self.npc_service.update_npc_locations_by_time(
-                game_state.current_time, game_state.story_id
+                game_state.current_time, game_state
             )
             game_state.npc_locations = npc_locations
             
             # 添加消息到内存
             if 'messages' in result:
                 for msg in result['messages']:
-                    game_state.add_message(msg)
+                    game_state.add_message(
+                        speaker=msg.get('speaker', '系统'),
+                        message=msg.get('message', ''),
+                        message_type=msg.get('type', 'normal')
+                    )
                 logger.info(f"  💬 添加消息: {len(result['messages'])} 条")
             
             # 注意：不再保存到缓存，状态完全依赖数据库持久化

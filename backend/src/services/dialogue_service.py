@@ -211,16 +211,15 @@ class DialogueService:
             NPC的对话响应
         """
         try:
-            # 获取NPC信息
-            from data.characters import all_actresses
-            npc_info = next((a for a in all_actresses if a['name'] == npc_name), None)
+            # 获取NPC信息 - 从数据库获取
+            from .npc_service import NPCService
+            npc_service = NPCService()
+            npc_info = npc_service.get_npc_by_name(npc_name, game_state.story_id)
             
             if not npc_info:
                 return f"抱歉，我不知道{npc_name}是谁。"
             
             # 获取NPC当前状态和事件
-            from .npc_service import NPCService
-            npc_service = NPCService()
             current_location, current_event = npc_service.get_npc_current_location_and_event(
                 npc_name, game_state.current_time, game_state
             )
@@ -380,17 +379,16 @@ class DialogueService:
         try:
             logger.info(f"🌟 [DialogueService] 生成对话五感反馈: {npc_name}")
             
-            # 获取NPC信息
-            from data.characters import all_actresses
-            npc_info = next((a for a in all_actresses if a['name'] == npc_name), None)
+            # 获取NPC信息 - 从数据库获取
+            from .npc_service import NPCService
+            npc_service = NPCService()
+            npc_info = npc_service.get_npc_by_name(npc_name, game_state.story_id)
             
             # 获取当前位置信息
             from data.locations import all_locations_data
             location_data = all_locations_data.get(game_state.player_location, {})
             
             # 获取NPC当前状态和事件
-            from .npc_service import NPCService
-            npc_service = NPCService()
             current_location, current_event = npc_service.get_npc_current_location_and_event(
                 npc_name, game_state.current_time, game_state
             )

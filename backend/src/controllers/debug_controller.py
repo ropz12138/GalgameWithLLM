@@ -64,20 +64,46 @@ class DebugController:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"获取工作流状态失败: {str(e)}")
     
-    def get_locations_info(self) -> Dict[str, Any]:
+    def get_locations_info(self, story_id: int = 1) -> Dict[str, Any]:
         """
         获取位置信息
         
+        Args:
+            story_id: 故事ID
+            
         Returns:
             位置信息
         """
         try:
-            from data.locations import all_locations_data, location_connections
+            from ..services.location_db_service import LocationDBService
+            location_db_service = LocationDBService()
             
-            return {
-                "locations": all_locations_data,
-                "connections": location_connections
-            }
+            result = location_db_service.get_locations_by_story(story_id)
+            if result.get("success"):
+                locations_data = result.get("data", [])
+                
+                # 构建连接图
+                connections = {}
+                locations = {}
+                for location in locations_data:
+                    key = location.get("key")
+                    locations[key] = {
+                        "name": location.get("name"),
+                        "en_name": location.get("en_name"),
+                        "description": location.get("description")
+                    }
+                    connections[key] = location.get("connections", [])
+                
+                return {
+                    "locations": locations,
+                    "connections": connections
+                }
+            else:
+                return {
+                    "error": f"获取位置信息失败: {result.get('error')}",
+                    "locations": {},
+                    "connections": {}
+                }
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"获取位置信息失败: {str(e)}")
     
@@ -99,17 +125,18 @@ class DebugController:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"获取NPC位置失败: {str(e)}")
     
-    def get_npcs_info(self) -> List[Dict[str, Any]]:
+    def get_npcs_info(self, story_id: int = 1) -> List[Dict[str, Any]]:
         """
         获取NPC信息
         
+        Args:
+            story_id: 故事ID
+            
         Returns:
             NPC信息列表
         """
         try:
-            from data.characters import all_actresses
-            
-            return all_actresses
+            return self.npc_service.get_all_npcs(story_id)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"获取NPC信息失败: {str(e)}")
     
@@ -126,8 +153,6 @@ class DebugController:
             NPC状态信息
         """
         try:
-            from data.characters import all_actresses
-            
             print(f"\n🔍 [DEBUG] 开始获取NPC状态信息 - session_id: {session_id}, user_id: {user_id}, story_id: {story_id}")
             
             game_state = await self.state_service.get_game_state(session_id, user_id, story_id)
@@ -149,10 +174,13 @@ class DebugController:
             
             print(f"\n🔍 [DEBUG] 开始计算每个NPC的状态:")
             
-            for actress in all_actresses:
-                npc_name = actress["name"]
+            # 从数据库获取当前故事的所有NPC
+            all_npcs = self.npc_service.get_all_npcs(story_id)
+            
+            for npc_data in all_npcs:
+                npc_name = npc_data.get("name")
                 print(f"\n🔍 [DEBUG] 处理NPC: {npc_name}")
-                print(f"  - 原始数据: {actress}")
+                print(f"  - 原始数据: {npc_data}")
                 
                 # 使用NPCService获取当前位置和活动（传递字符串格式的时间）
                 current_location, current_event = self.npc_service.get_npc_current_location_and_event(
@@ -171,7 +199,7 @@ class DebugController:
                 npc_status[npc_name] = {
                     "current_location": current_location,
                     "current_event": current_event,
-                    "personality": actress.get("personality", "友善"),
+                    "personality": npc_data.get("personality", "友善"),
                     "schedule": current_schedule  # 使用当前有效的计划表
                 }
                 
@@ -182,7 +210,7 @@ class DebugController:
                     npcs_at_player_location.append({
                         "name": npc_name,
                         "event": current_event,
-                        "personality": actress.get("personality", "友善")
+                        "personality": npc_data.get("personality", "友善")
                     })
                     print(f"  ✅ 在玩家当前位置，已添加到列表")
                 else:

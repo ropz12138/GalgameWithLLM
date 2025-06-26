@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StoryApi, CreateCompleteStoryRequest } from '../api/story';
+import { API_BASE_URL } from '../api';
 import { useAuth } from '../contexts/AuthContext';
 
 interface NPC {
@@ -37,8 +38,7 @@ interface NewStoryModalProps {
   onStoryCreated?: () => void;
 }
 
-// API基础URL
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001/api';
+// API基础配置已在api层统一管理
 
 export function NewStoryModal({ isOpen, onClose, onStoryCreated }: NewStoryModalProps) {
   const { token } = useAuth();
@@ -345,7 +345,7 @@ export function NewStoryModal({ isOpen, onClose, onStoryCreated }: NewStoryModal
     schedule.push({
       start_time: "07:00",
       end_time: "08:00",
-      location: "linkai_room",
+      location: "",
       event: "新活动"
     });
     updatedNPCs[index] = { ...updatedNPCs[index], schedule };
@@ -659,7 +659,7 @@ export function NewStoryModal({ isOpen, onClose, onStoryCreated }: NewStoryModal
                                                          <div className="flex items-center space-x-2">
                                <input
                                  type="text"
-                                 placeholder="关系名称 (如: 林凯)"
+                                 placeholder="关系名称 (如: 角色名)"
                                  value={newRelationInputs[index]?.key || ''}
                                  onChange={(e) => setNewRelationInputs(prev => ({
                                    ...prev,

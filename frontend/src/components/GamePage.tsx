@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { NewStoryModal } from './NewStoryModal';
 import { StoryApi, Story } from '../api/story';
 import { GameApi, GameMessage, MessageHistoryResponse } from '../api/game';
+import { API_BASE_URL } from '../api';
 
 interface NPC {
   name: string;
@@ -25,17 +26,7 @@ interface GameState {
   dialogue_history: DialogueEntry[];
 }
 
-const locationKeyToName: Record<string, string> = {
-  "linkai_room": "林凯房间",
-  "linruoxi_room": "林若曦房间",
-  "zhangyuqing_room": "张雨晴房间",
-  "livingroom": "客厅",
-  "kitchen": "厨房",
-  "bathroom": "卫生间"
-};
-
-// API基础URL - 从环境变量读取，默认为8001端口
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001/api';
+// API基础配置已在api层统一管理
 
 export function GamePage() {
   const { user, logout } = useAuth();
@@ -695,11 +686,14 @@ export function GamePage() {
   const fetchConsoleData = async () => {
     setConsoleLoading(true);
     try {
+      // 使用当前选择的故事ID，默认为1
+      const currentStoryId = selectedStoryId || 1;
+      
       // 并行获取多个调试信息
       const [gameStateRes, npcStatusRes, locationStatusRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/debug/game_state`),
-        fetch(`${API_BASE_URL}/debug/npc_status`),
-        fetch(`${API_BASE_URL}/debug/location_status`)
+        fetch(`${API_BASE_URL}/debug/game_state?story_id=${currentStoryId}`),
+        fetch(`${API_BASE_URL}/debug/npc_status?story_id=${currentStoryId}`),
+        fetch(`${API_BASE_URL}/debug/location_status?story_id=${currentStoryId}`)
       ]);
 
       const [gameStateData, npcStatusData, locationStatusData] = await Promise.all([
@@ -882,7 +876,7 @@ export function GamePage() {
               <div className="space-y-4">
                 <div>
                   <h3 className="font-medium text-gray-700">当前位置</h3>
-                  <p className="text-gray-600">{locationKeyToName[gameState.player_location] || gameState.player_location}</p>
+                  <p className="text-gray-600">{gameState.player_location}</p>
                 </div>
                 
                 <div>
@@ -900,7 +894,7 @@ export function GamePage() {
                   <div className="flex flex-wrap gap-2 mt-2">
                     {gameState.connected_locations.map((location, index) => (
                       <span key={index} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm">
-                        {locationKeyToName[location] || location}
+                        {location}
                       </span>
                     ))}
                   </div>
@@ -1007,7 +1001,7 @@ export function GamePage() {
                 value={userInput}
                 onChange={handleUserInputChange}
                 placeholder={selectedStoryId 
-                  ? "输入你的行动... (例如: 前往客厅, 和林若曦说话：你好)" 
+                  ? "输入你的行动... (例如: 前往其他地点, 和角色说话：你好)" 
                   : "请先选择一个故事..."
                 }
                 className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1023,7 +1017,7 @@ export function GamePage() {
             </form>
             <p className="text-xs text-gray-500 mt-2">
               {selectedStoryId 
-                ? "💡 提示: 你可以移动到其他房间、与角色对话、或进行其他行动"
+                ? "💡 提示: 你可以移动到其他地点、与角色对话、或进行其他行动"
                 : "📚 请先从左侧选择一个故事开始游戏"
               }
             </p>
